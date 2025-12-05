@@ -43,7 +43,13 @@ public class WebSocketEventListener {
 
         if (username != null) {
             userService.userConnected(username, sessionId);
+
+            // 1. Отправляем новому пользователю ТЕКУЩИЙ список онлайн
+            sendCurrentOnlineUsersToUser(username);
+
+            // 2. Оповещаем ВСЕХ о новом подключении
             broadcastOnlineUsers();
+
             System.out.println("✅ User CONNECTED and online: " + username);
         } else {
             System.out.println("⚠️  WebSocket connected but no authenticated user");
@@ -74,6 +80,21 @@ public class WebSocketEventListener {
             System.out.println("🔴 User DISCONNECTED and offline: " + username);
         } else {
             System.out.println("⚠️  WebSocket disconnected but no user info");
+        }
+    }
+
+    private void sendCurrentOnlineUsersToUser(String username) {
+        try {
+            List<String> onlineUsers = userService.getOnlineUsers();
+            // Отправляем ПЕРСОНАЛЬНО новому пользователю
+            messagingTemplate.convertAndSendToUser(
+                    username,
+                    "/queue/online.users",
+                    onlineUsers
+            );
+            System.out.println("📢 Sent current online users to " + username + ": " + onlineUsers);
+        } catch (Exception e) {
+            System.err.println("❌ Error sending online users to " + username + ": " + e.getMessage());
         }
     }
 
