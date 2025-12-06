@@ -21,7 +21,7 @@ public class WebSocketEventListener {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
-    @EventListener
+    @EventListener  // ← ЭТОЙ АННОТАЦИИ НЕ БЫЛО!
     public void handleWebSocketConnectListener(SessionConnectedEvent event) {
         StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
 
@@ -44,10 +44,7 @@ public class WebSocketEventListener {
         if (username != null) {
             userService.userConnected(username, sessionId);
 
-            // 1. Отправляем новому пользователю ТЕКУЩИЙ список онлайн
-            sendCurrentOnlineUsersToUser(username);
-
-            // 2. Оповещаем ВСЕХ о новом подключении
+            // ТОЛЬКО broadcast всем (включая новичка)
             broadcastOnlineUsers();
 
             System.out.println("✅ User CONNECTED and online: " + username);
@@ -56,7 +53,7 @@ public class WebSocketEventListener {
         }
     }
 
-    @EventListener
+    @EventListener  // ← И ЗДЕСЬ ТОЖЕ!
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
         StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
 
@@ -83,26 +80,11 @@ public class WebSocketEventListener {
         }
     }
 
-    private void sendCurrentOnlineUsersToUser(String username) {
-        try {
-            List<String> onlineUsers = userService.getOnlineUsers();
-            // Отправляем ПЕРСОНАЛЬНО новому пользователю
-            messagingTemplate.convertAndSendToUser(
-                    username,
-                    "/queue/online.users",
-                    onlineUsers
-            );
-            System.out.println("📢 Sent current online users to " + username + ": " + onlineUsers);
-        } catch (Exception e) {
-            System.err.println("❌ Error sending online users to " + username + ": " + e.getMessage());
-        }
-    }
-
     private void broadcastOnlineUsers() {
         try {
             List<String> onlineUsers = userService.getOnlineUsers();
             messagingTemplate.convertAndSend("/topic/online.users", onlineUsers);
-            System.out.println("📢 Broadcasted online users: " + onlineUsers);
+            System.out.println("📢 Broadcasted online users to ALL: " + onlineUsers);
         } catch (Exception e) {
             System.err.println("❌ Error broadcasting online users: " + e.getMessage());
         }

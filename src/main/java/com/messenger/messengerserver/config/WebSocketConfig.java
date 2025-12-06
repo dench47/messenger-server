@@ -29,10 +29,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        // Добавляем heartbeat: 10 секунд от сервера, ожидаем 10 секунд от клиента
         config.enableSimpleBroker("/topic", "/queue")
-                .setHeartbeatValue(new long[] {10000, 10000})
-                .setTaskScheduler(taskScheduler()); // ДОБАВИТЬ ЭТУ СТРОКУ
+                .setHeartbeatValue(new long[] {30000, 30000}) // 30 секунд
+                .setTaskScheduler(taskScheduler());
 
         config.setApplicationDestinationPrefixes("/app");
         config.setUserDestinationPrefix("/user");
