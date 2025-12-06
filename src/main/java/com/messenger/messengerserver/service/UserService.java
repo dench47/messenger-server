@@ -37,7 +37,6 @@ public class UserService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
         user.setOnline(true);
-        user.setLastSeen(LocalDateTime.now());
         userRepository.save(user);
         System.out.println("✅ User online: " + username);
     }
@@ -49,6 +48,14 @@ public class UserService {
         user.setLastSeen(LocalDateTime.now());
         userRepository.save(user);
         System.out.println("🔴 User offline: " + username);
+    }
+
+    public void updateLastSeen(String username) {
+        User user = findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        user.setLastSeen(LocalDateTime.now());
+        userRepository.save(user);
+        System.out.println("⏰ Last seen updated for " + username + ": " + user.getLastSeen());
     }
 
     // Методы для управления WebSocket сессиями
@@ -68,6 +75,7 @@ public class UserService {
             // Если нет активных сессий - ставим офлайн
             if (!userSessions.containsKey(username)) {
                 setUserOffline(username);
+                updateLastSeen(username); // Явно обновляем last seen
             }
         }
 
