@@ -108,11 +108,66 @@ public class UserService {
 
         return allUsers.stream()
                 .map(user -> {
-                    // Обновляем онлайн статус на основе активных сессий
+                    // Определяем онлайн по WebSocket
                     boolean isActuallyOnline = onlineUsernames.contains(user.getUsername());
                     user.setOnline(isActuallyOnline);
+
+                    // Если онлайн, проверяем активность
+                    if (isActuallyOnline && user.getLastActivity() != null) {
+                        LocalDateTime twoMinutesAgo = LocalDateTime.now().minusMinutes(2);
+                        boolean isActive = user.getLastActivity().isAfter(twoMinutesAgo);
+                        // Можно добавить поле "active" или использовать существующее
+                        // user.setActive(isActive); // если добавишь поле
+                    }
+
                     return user;
                 })
                 .toList();
+    }
+
+    public void updateUserOnlineStatus(String username, boolean online) {
+        User user = findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // Если ставим онлайн, а WebSocket уже есть - игнорируем
+        if (online && userSessions.containsKey(username)) {
+            System.out.println("⚠️ User already online via WebSocket: " + username);
+            return;
+        }
+
+        // Если ставим оффлайн, но есть WebSocket сессия - WebSocket главный
+        if (!online && userSessions.containsKey(username)) {
+            System.out.println("⚠️ User has active WebSocket, keeping online: " + username);
+            return;
+        }
+
+        user.setOnline(online);
+        if (!online) {
+            user.setLastSeen(LocalDateTime.now());
+        }
+        userRepository.save(user);
+
+        System.out.println((online ? "✅" : "🔴") + " User status via API: " + username + " = " + online);
+    }
+
+    public void updateUserActivity(String username) {
+        User user = findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        user.setLastActivity(LocalDateTime.now());
+        userRepository.save(user);
+        System.out.println("🔄 Activity updated for: " + username);
+    }
+
+    public boolean isUserActive(String username) {
+        User user = findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        if (user.getLastActivity() == null) {
+            return user.getOnline(); // Если нет активности, смотрим онлайн статус
+        }
+
+        // Считаем активным, если была активность в последние 2 минуты
+        LocalDateTime twoMinutesAgo = LocalDateTime.now().minusMinutes(2);
+        return user.getLastActivity().isAfter(twoMinutesAgo) && user.getOnline();
     }
 }

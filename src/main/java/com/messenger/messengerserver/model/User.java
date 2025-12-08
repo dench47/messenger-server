@@ -28,9 +28,15 @@ public class User {
 
     private LocalDateTime createdAt;
 
+    private LocalDateTime lastActivity;
+
+
     // Конструкторы
+
+
     public User() {
         this.createdAt = LocalDateTime.now();
+        this.lastActivity = LocalDateTime.now();
     }
 
     public User(String username, String password) {
@@ -43,6 +49,9 @@ public class User {
     // Геттеры и сеттеры
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public LocalDateTime getLastActivity() { return lastActivity; }
+    public void setLastActivity(LocalDateTime lastActivity) { this.lastActivity = lastActivity; }
 
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }

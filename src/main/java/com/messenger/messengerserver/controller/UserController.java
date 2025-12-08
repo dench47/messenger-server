@@ -1,5 +1,6 @@
 package com.messenger.messengerserver.controller;
 
+import com.messenger.messengerserver.dto.UserWithStatusDTO;
 import com.messenger.messengerserver.model.User;
 import com.messenger.messengerserver.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -7,6 +8,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/users")
@@ -17,30 +20,41 @@ public class UserController {
     private UserService userService;
 
     @GetMapping
-    public ResponseEntity<List<User>> getUsers() {
+    public ResponseEntity<List<UserWithStatusDTO>> getUsers() {
         try {
-            // Используем метод с реальным онлайн статусом
-            List<User> users = userService.getUsersWithRealOnlineStatus();
-            return ResponseEntity.ok(users);
+            List<User> users = userService.getAllUsers();
+            List<String> onlineUsernames = userService.getOnlineUsers();
+
+            List<UserWithStatusDTO> usersWithStatus = users.stream()
+                    .map(user -> {
+                        boolean isActuallyOnline = onlineUsernames.contains(user.getUsername());
+                        return new UserWithStatusDTO(user, isActuallyOnline);
+                    })
+                    .collect(Collectors.toList());
+
+            return ResponseEntity.ok(usersWithStatus);
         } catch (Exception e) {
+            e.printStackTrace();
             return ResponseEntity.badRequest().build();
         }
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<User>> searchUsers(@RequestParam String query) {
+    public ResponseEntity<List<UserWithStatusDTO>> searchUsers(@RequestParam String query) {
         try {
             List<User> users = userService.searchUsers(query);
-            // Обновляем онлайн статусы для найденных пользователей
             List<String> onlineUsernames = userService.getOnlineUsers();
-            List<User> usersWithStatus = users.stream()
+
+            List<UserWithStatusDTO> usersWithStatus = users.stream()
                     .map(user -> {
-                        user.setOnline(onlineUsernames.contains(user.getUsername()));
-                        return user;
+                        boolean isActuallyOnline = onlineUsernames.contains(user.getUsername());
+                        return new UserWithStatusDTO(user, isActuallyOnline);
                     })
-                    .toList();
+                    .collect(Collectors.toList());
+
             return ResponseEntity.ok(usersWithStatus);
         } catch (Exception e) {
+            e.printStackTrace();
             return ResponseEntity.badRequest().build();
         }
     }
@@ -56,6 +70,38 @@ public class UserController {
             user.setOnline(isOnline);
 
             return ResponseEntity.ok(user);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PostMapping("/update-online-status")
+    public ResponseEntity<Void> updateOnlineStatus(@RequestBody Map<String, Object> request) {
+        try {
+            String username = (String) request.get("username");
+            Boolean online = (Boolean) request.get("online");
+
+            if (username == null || online == null) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            userService.updateUserOnlineStatus(username, online);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PostMapping("/update-activity")
+    public ResponseEntity<Void> updateActivity(@RequestBody Map<String, String> request) {
+        try {
+            String username = request.get("username");
+            if (username == null) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            userService.updateUserActivity(username);
+            return ResponseEntity.ok().build();
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
         }
