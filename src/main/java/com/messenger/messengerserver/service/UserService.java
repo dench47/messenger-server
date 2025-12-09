@@ -170,4 +170,22 @@ public class UserService {
         LocalDateTime twoMinutesAgo = LocalDateTime.now().minusMinutes(2);
         return user.getLastActivity().isAfter(twoMinutesAgo) && user.getOnline();
     }
+
+    public boolean isUserActuallyActive(String username) {
+        Optional<User> userOpt = findByUsername(username);
+        if (userOpt.isEmpty()) {
+            return false;
+        }
+
+        User user = userOpt.get();
+
+        // Если нет данных об активности - считаем неактивным
+        if (user.getLastActivity() == null) {
+            return false;
+        }
+
+        // Активен если была активность в последние 5 минут
+        LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(5);
+        return user.getLastActivity().isAfter(fiveMinutesAgo);
+    }
 }

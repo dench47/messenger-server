@@ -23,6 +23,30 @@ public class UserWithStatusDTO {
         this.lastSeenText = formatLastSeen(user.getLastSeen());
     }
 
+    public UserWithStatusDTO(User user, boolean hasWebSocket, boolean isActuallyActive) {
+        this.id = user.getId();
+        this.username = user.getUsername();
+        this.displayName = user.getDisplayName();
+        this.avatarUrl = user.getAvatarUrl();
+        this.status = calculateStatus(hasWebSocket, isActuallyActive);
+        this.lastSeenText = formatLastSeen(user.getLastSeen());
+    }
+
+    private String calculateStatus(boolean hasWebSocket, boolean isActuallyActive) {
+        // ДЕБАГ вывод
+        System.out.println("DEBUG: hasWebSocket=" + hasWebSocket + ", isActuallyActive=" + isActuallyActive);
+
+        if (!hasWebSocket) {
+            return "offline";
+        }
+
+        if (isActuallyActive) {
+            return "active";
+        } else {
+            return "inactive"; // ← ДОЛЖЕН ВЫЗЫВАТЬСЯ!
+        }
+    }
+
     private String calculateStatus(User user, boolean isActuallyOnline) {
         if (!isActuallyOnline) {
             return "offline";

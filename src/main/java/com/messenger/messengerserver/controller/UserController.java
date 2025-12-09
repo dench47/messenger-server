@@ -27,8 +27,9 @@ public class UserController {
 
             List<UserWithStatusDTO> usersWithStatus = users.stream()
                     .map(user -> {
-                        boolean isActuallyOnline = onlineUsernames.contains(user.getUsername());
-                        return new UserWithStatusDTO(user, isActuallyOnline);
+                        boolean hasWebSocket = onlineUsernames.contains(user.getUsername());
+                        boolean isActuallyActive = userService.isUserActuallyActive(user.getUsername());
+                        return new UserWithStatusDTO(user, hasWebSocket, isActuallyActive);
                     })
                     .collect(Collectors.toList());
 
