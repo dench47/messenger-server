@@ -1,5 +1,6 @@
 package com.messenger.messengerserver.config;
 
+import com.messenger.messengerserver.model.User;
 import com.messenger.messengerserver.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
@@ -9,6 +10,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionConnectedEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -53,18 +57,16 @@ public class WebSocketEventListener {
         }
     }
 
-    @EventListener  // ← И ЗДЕСЬ ТОЖЕ!
+    @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
         StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
 
-        // Получаем пользователя из атрибутов сессии
         String username = null;
         Map<String, Object> sessionAttributes = headerAccessor.getSessionAttributes();
         if (sessionAttributes != null) {
             username = (String) sessionAttributes.get("username");
         }
 
-        // Если не нашли в атрибутах, пробуем из SecurityContext
         if (username == null && headerAccessor.getUser() != null) {
             username = headerAccessor.getUser().getName();
         }
@@ -73,11 +75,57 @@ public class WebSocketEventListener {
 
         if (username != null) {
             userService.userDisconnected(username, sessionId);
+
+            // 1. Отправляем обновленный список онлайн пользователей
             broadcastOnlineUsers();
+
+            // 2. Отправляем отдельное событие с данными об отключившемся пользователе
+            sendUserDisconnectedEvent(username);
+
             System.out.println("🔴 User DISCONNECTED and offline: " + username);
         } else {
             System.out.println("⚠️  WebSocket disconnected but no user info");
         }
+    }
+
+    private void sendUserDisconnectedEvent(String username) {
+        try {
+            User user = userService.findByUsername(username)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            Map<String, Object> disconnectEvent = new HashMap<>();
+            disconnectEvent.put("type", "USER_DISCONNECTED");
+            disconnectEvent.put("username", username);
+            disconnectEvent.put("online", false);
+            disconnectEvent.put("lastSeen", user.getLastSeen());
+            disconnectEvent.put("lastSeenText", formatLastSeenForEvent(user.getLastSeen()));
+
+            messagingTemplate.convertAndSend("/topic/user.events", disconnectEvent);
+            System.out.println("📢 Sent disconnect event for user: " + username);
+        } catch (Exception e) {
+            System.err.println("❌ Error sending disconnect event: " + e.getMessage());
+        }
+    }
+
+    private String formatLastSeenForEvent(LocalDateTime lastSeen) {
+        if (lastSeen == null) return "never";
+
+        Duration duration = Duration.between(lastSeen, LocalDateTime.now());
+        long minutes = duration.toMinutes();
+
+        if (minutes < 1) return "just now";
+        if (minutes == 1) return "1 minute ago";
+        if (minutes < 60) return minutes + " minutes ago";
+
+        long hours = duration.toHours();
+        if (hours == 1) return "1 hour ago";
+        if (hours < 24) return hours + " hours ago";
+
+        long days = duration.toDays();
+        if (days == 1) return "yesterday";
+        if (days < 7) return days + " days ago";
+
+        return "long time ago";
     }
 
     private void broadcastOnlineUsers() {
