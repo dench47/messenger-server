@@ -12,7 +12,7 @@ public class JwtUtil {
     @Value("${jwt.secret:mySuperSecretKeyForMessengerApplication2024}")
     private String jwtSecret;
 
-    @Value("${jwt.access.expiration:900000}") // 15 минут
+    @Value("${jwt.access.expiration:3600000}") // 1 час вместо 15 минут
     private long accessTokenExpiration;
 
     @Value("${jwt.refresh.expiration:2592000000}") // 30 дней
