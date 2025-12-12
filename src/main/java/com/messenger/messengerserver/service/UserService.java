@@ -216,12 +216,12 @@ public class UserService {
                 if (isOnline) {
                     // Онлайн пользователь
                     status = isActuallyActive ? "active" : "inactive";
-                } else {
+                }else {
                     // Оффлайн пользователь
-                    if (user.getLastActivity() != null) {
+                    if (user.getLastSeen() != null) {
                         LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(5);
-                        boolean wasActiveRecently = user.getLastActivity().isAfter(fiveMinutesAgo);
-                        status = wasActiveRecently ? "inactive" : "offline";
+                        boolean wasOnlineRecently = user.getLastSeen().isAfter(fiveMinutesAgo);
+                        status = wasOnlineRecently ? "inactive" : "offline";
                     } else {
                         status = "offline";
                     }

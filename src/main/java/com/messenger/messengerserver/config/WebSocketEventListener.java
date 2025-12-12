@@ -25,7 +25,7 @@ public class WebSocketEventListener {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
-    @EventListener  // ← ЭТОЙ АННОТАЦИИ НЕ БЫЛО!
+    @EventListener
     public void handleWebSocketConnectListener(SessionConnectedEvent event) {
         StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
 
@@ -48,7 +48,10 @@ public class WebSocketEventListener {
         if (username != null) {
             userService.userConnected(username, sessionId);
 
-            // ТОЛЬКО broadcast всем (включая новичка)
+            // 1. НЕМЕДЛЕННО отправляем статус онлайн
+            sendImmediateUserStatusUpdate(username, true);
+
+            // 2. Отправляем обновленный список онлайн пользователей
             broadcastOnlineUsers();
 
             System.out.println("✅ User CONNECTED and online: " + username);
@@ -88,6 +91,28 @@ public class WebSocketEventListener {
         }
     }
 
+    private void sendImmediateUserStatusUpdate(String username, boolean isOnline) {
+        try {
+            boolean isActuallyActive = userService.isUserActuallyActive(username);
+            String status = isOnline ? (isActuallyActive ? "active" : "inactive") : "offline";
+
+            Map<String, Object> statusUpdate = new HashMap<>();
+            statusUpdate.put("type", "USER_STATUS_UPDATE");
+            statusUpdate.put("username", username);
+            statusUpdate.put("online", isOnline);
+            statusUpdate.put("active", isActuallyActive && isOnline);
+            statusUpdate.put("status", status);
+
+            messagingTemplate.convertAndSend("/topic/user.events", statusUpdate);
+
+            System.out.println("⚡⚡⚡ IMMEDIATE STATUS SENT: " + username +
+                    " -> online=" + isOnline +
+                    ", active=" + isActuallyActive +
+                    ", status=" + status);
+        } catch (Exception e) {
+            System.err.println("❌❌❌ Error sending immediate status: " + e.getMessage());
+            e.printStackTrace();        }
+    }
     private void sendUserDisconnectedEvent(String username) {
         try {
             User user = userService.findByUsername(username)
