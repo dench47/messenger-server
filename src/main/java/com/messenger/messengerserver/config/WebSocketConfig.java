@@ -24,13 +24,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         scheduler.setPoolSize(2);
         scheduler.setThreadNamePrefix("websocket-heartbeat-");
         scheduler.initialize();
+        System.out.println("✅ TaskScheduler создан для heartbeat");
+
         return scheduler;
     }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
         config.enableSimpleBroker("/topic", "/queue")
-                .setHeartbeatValue(new long[] {30000, 30000}) // 30 секунд
+                .setHeartbeatValue(new long[] {10000, 10000}) // 10 секунд
                 .setTaskScheduler(taskScheduler());
 
         config.setApplicationDestinationPrefixes("/app");

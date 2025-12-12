@@ -3,13 +3,12 @@ package com.messenger.messengerserver.service;
 import com.messenger.messengerserver.model.User;
 import com.messenger.messengerserver.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -17,6 +16,10 @@ public class UserService {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired  // ← ДОБАВЬ ЭТО
+    private SimpMessagingTemplate messagingTemplate;
+
 
     // Мапа для хранения активных WebSocket сессий: username -> sessionId
     private final Map<String, String> userSessions = new ConcurrentHashMap<>();
@@ -187,5 +190,57 @@ public class UserService {
         // Активен если была активность в последние 5 минут
         LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(5);
         return user.getLastActivity().isAfter(fiveMinutesAgo);
+    }
+
+    @Scheduled(fixedRate = 30000) // Каждые 30 секунд
+    public void broadcastUserStatusUpdates() {
+        try {
+            List<User> allUsers = userRepository.findAll();
+            if (allUsers.isEmpty()) return;
+
+            System.out.println("🔄 Scheduled status broadcast for " + allUsers.size() + " users");
+
+            for (User user : allUsers) {
+                String username = user.getUsername();
+
+                // Проверяем WebSocket соединение
+                boolean hasWebSocket = userSessions.containsKey(username);
+
+                // Проверяем активность (последние 5 минут)
+                boolean isActuallyActive = isUserActuallyActive(username);
+
+                // Финальный онлайн статус (WebSocket главный)
+                boolean isOnline = hasWebSocket;
+
+                String status;
+                if (isOnline) {
+                    // Онлайн пользователь
+                    status = isActuallyActive ? "active" : "inactive";
+                } else {
+                    // Оффлайн пользователь
+                    if (user.getLastActivity() != null) {
+                        LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(5);
+                        boolean wasActiveRecently = user.getLastActivity().isAfter(fiveMinutesAgo);
+                        status = wasActiveRecently ? "inactive" : "offline";
+                    } else {
+                        status = "offline";
+                    }
+                }
+
+                Map<String, Object> statusUpdate = new HashMap<>();
+                statusUpdate.put("type", "USER_STATUS_UPDATE");
+                statusUpdate.put("username", username);
+                statusUpdate.put("online", isOnline);
+                statusUpdate.put("active", isActuallyActive && isOnline);
+                statusUpdate.put("status", status);
+
+                messagingTemplate.convertAndSend("/topic/user.events", statusUpdate);
+
+                System.out.println("   📤 " + username + ": online=" + isOnline +
+                        ", status=" + status + ", lastActivity=" + user.getLastActivity());
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error in status broadcast: " + e.getMessage());
+        }
     }
 }
