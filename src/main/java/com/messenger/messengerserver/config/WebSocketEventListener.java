@@ -12,6 +12,7 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -123,10 +124,10 @@ public class WebSocketEventListener {
             disconnectEvent.put("username", username);
             disconnectEvent.put("online", false);
             disconnectEvent.put("lastSeen", user.getLastSeen());
-            disconnectEvent.put("lastSeenText", formatLastSeenForEvent(user.getLastSeen()));
+            disconnectEvent.put("lastSeenText", formatLastSeenForDisplay(user.getLastSeen()));
 
             messagingTemplate.convertAndSend("/topic/user.events", disconnectEvent);
-            System.out.println("📢 Sent disconnect event for user: " + username);
+            System.out.println("📢 Sent disconnect event with lastSeenText: " + username + " - " + formatLastSeenForDisplay(user.getLastSeen()));
         } catch (Exception e) {
             System.err.println("❌ Error sending disconnect event: " + e.getMessage());
         }
@@ -161,5 +162,32 @@ public class WebSocketEventListener {
         } catch (Exception e) {
             System.err.println("❌ Error broadcasting online users: " + e.getMessage());
         }
+    }
+
+    private String formatLastSeenForDisplay(LocalDateTime lastSeen) {
+        if (lastSeen == null) return "никогда";
+
+        Duration duration = Duration.between(lastSeen, LocalDateTime.now());
+        long minutes = duration.toMinutes();
+
+        if (minutes < 1) return "только что";
+        if (minutes == 1) return "1 минуту назад";
+        if (minutes < 5) return minutes + " минуты назад";
+        if (minutes < 60) return minutes + " минут назад";
+
+        long hours = duration.toHours();
+        if (hours == 1) return "1 час назад";
+        if (hours < 5) return hours + " часа назад";
+        if (hours < 24) return hours + " часов назад";
+
+        long days = duration.toDays();
+        if (days == 1) return "вчера";
+        if (days == 2) return "позавчера";
+        if (days < 7) return days + " дня назад";
+        if (days < 30) return days + " дней назад";
+
+        // Больше месяца - показываем дату
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yy");
+        return lastSeen.format(formatter);
     }
 }

@@ -7,7 +7,9 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -192,7 +194,7 @@ public class UserService {
         return user.getLastActivity().isAfter(fiveMinutesAgo);
     }
 
-    @Scheduled(fixedRate = 30000) // Каждые 30 секунд
+    @Scheduled(fixedRate = 30000)
     public void broadcastUserStatusUpdates() {
         try {
             List<User> allUsers = userRepository.findAll();
@@ -203,44 +205,125 @@ public class UserService {
             for (User user : allUsers) {
                 String username = user.getUsername();
 
-                // Проверяем WebSocket соединение
                 boolean hasWebSocket = userSessions.containsKey(username);
-
-                // Проверяем активность (последние 5 минут)
                 boolean isActuallyActive = isUserActuallyActive(username);
-
-                // Финальный онлайн статус (WebSocket главный)
                 boolean isOnline = hasWebSocket;
 
                 String status;
+                String displayText = null; // Текст для отображения
+
                 if (isOnline) {
                     // Онлайн пользователь
-                    status = isActuallyActive ? "active" : "inactive";
-                }else {
-                    // Оффлайн пользователь
-                    if (user.getLastSeen() != null) {
-                        LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(5);
-                        boolean wasOnlineRecently = user.getLastSeen().isAfter(fiveMinutesAgo);
-                        status = wasOnlineRecently ? "inactive" : "offline";
+                    if (isActuallyActive) {
+                        status = "active";
+                        displayText = "online";
                     } else {
-                        status = "offline";
+                        status = "inactive";
+                        // ДЛЯ INACTIVE пользователей показываем "был X назад"!
+                        if (user.getLastActivity() != null) {
+                            displayText = formatTimeAgo(user.getLastActivity());
+                        } else {
+                            displayText = "был недавно";
+                        }
                     }
+                    System.out.println("   👤 " + username + ": онлайн, active=" + isActuallyActive +
+                            ", display=" + displayText);
+                } else {
+                    // Оффлайн пользователь
+                    status = "offline";
+                    if (user.getLastSeen() != null) {
+                        displayText = formatTimeAgo(user.getLastSeen());
+                    } else {
+                        displayText = "никогда";
+                    }
+                    System.out.println("   👤 " + username + ": оффлайн, lastSeen=" +
+                            user.getLastSeen() + " -> " + displayText);
                 }
 
                 Map<String, Object> statusUpdate = new HashMap<>();
                 statusUpdate.put("type", "USER_STATUS_UPDATE");
                 statusUpdate.put("username", username);
                 statusUpdate.put("online", isOnline);
-                statusUpdate.put("active", isActuallyActive && isOnline);
+                statusUpdate.put("active", isActuallyActive);
                 statusUpdate.put("status", status);
 
-                messagingTemplate.convertAndSend("/topic/user.events", statusUpdate);
+                // ВСЕГДА отправляем displayText!
+                if (displayText != null) {
+                    statusUpdate.put("lastSeenText", displayText);
+                }
 
-                System.out.println("   📤 " + username + ": online=" + isOnline +
-                        ", status=" + status + ", lastActivity=" + user.getLastActivity());
+                messagingTemplate.convertAndSend("/topic/user.events", statusUpdate);
             }
+
+            System.out.println("✅ Status broadcast completed");
         } catch (Exception e) {
-            System.err.println("❌ Error in status broadcast: " + e.getMessage());
+            System.err.println("❌❌❌ ERROR in status broadcast: " + e.getMessage());
+            e.printStackTrace();
         }
+    }
+
+    private String formatTimeAgo(LocalDateTime time) {
+        if (time == null) return "никогда";
+
+        Duration duration = Duration.between(time, LocalDateTime.now());
+        long minutes = duration.toMinutes();
+
+        if (minutes < 1) return "только что";
+        if (minutes == 1) return "1 минуту назад";
+        if (minutes < 5) return minutes + " минуты назад";
+        if (minutes < 60) return minutes + " минут назад";
+
+        long hours = duration.toHours();
+        if (hours == 1) return "1 час назад";
+        if (hours < 5) return hours + " часа назад";
+        if (hours < 24) return hours + " часов назад";
+
+        long days = duration.toDays();
+        if (days == 1) return "вчера";
+        if (days == 2) return "позавчера";
+        if (days < 7) return days + " дня назад";
+        if (days < 30) return days + " дней назад";
+
+        long months = days / 30;
+        if (months == 1) return "месяц назад";
+        if (months < 12) return months + " месяцев назад";
+
+        long years = months / 12;
+        if (years == 1) return "год назад";
+        return years + " лет назад";
+    }
+
+    // Добавьте метод formatLastSeenForDisplay в UserService тоже:
+    private String formatLastSeenForDisplay(LocalDateTime lastSeen) {
+        if (lastSeen == null) return "никогда";
+
+        Duration duration = Duration.between(lastSeen, LocalDateTime.now());
+        long minutes = duration.toMinutes();
+
+        if (minutes < 1) return "только что";
+        if (minutes == 1) return "1 минуту назад";
+        if (minutes < 5) return minutes + " минуты назад";
+        if (minutes < 60) return minutes + " минут назад";
+
+        long hours = duration.toHours();
+        if (hours == 1) return "1 час назад";
+        if (hours < 5) return hours + " часа назад";
+        if (hours < 24) return hours + " часов назад";
+
+        long days = duration.toDays();
+        if (days == 1) return "вчера";
+        if (days == 2) return "позавчера";
+        if (days < 7) return days + " дня назад";
+        if (days < 30) return days + " дней назад";
+
+        // Больше месяца
+        long months = days / 30;
+        if (months == 1) return "месяц назад";
+        if (months < 12) return months + " месяцев назад";
+
+        // Больше года
+        long years = months / 12;
+        if (years == 1) return "год назад";
+        return years + " лет назад";
     }
 }
