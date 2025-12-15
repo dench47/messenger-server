@@ -133,26 +133,6 @@ public class WebSocketEventListener {
         }
     }
 
-    private String formatLastSeenForEvent(LocalDateTime lastSeen) {
-        if (lastSeen == null) return "never";
-
-        Duration duration = Duration.between(lastSeen, LocalDateTime.now());
-        long minutes = duration.toMinutes();
-
-        if (minutes < 1) return "just now";
-        if (minutes == 1) return "1 minute ago";
-        if (minutes < 60) return minutes + " minutes ago";
-
-        long hours = duration.toHours();
-        if (hours == 1) return "1 hour ago";
-        if (hours < 24) return hours + " hours ago";
-
-        long days = duration.toDays();
-        if (days == 1) return "yesterday";
-        if (days < 7) return days + " days ago";
-
-        return "long time ago";
-    }
 
     private void broadcastOnlineUsers() {
         try {

@@ -23,7 +23,6 @@ public class UserService {
     private SimpMessagingTemplate messagingTemplate;
 
 
-    // Мапа для хранения активных WebSocket сессий: username -> sessionId
     private final Map<String, String> userSessions = new ConcurrentHashMap<>();
 
     public Optional<User> findByUsername(String username) {
@@ -184,13 +183,11 @@ public class UserService {
 
         User user = userOpt.get();
 
-        // Если нет данных об активности - считаем неактивным
         if (user.getLastActivity() == null) {
             return false;
         }
 
-        // Активен если была активность в последние 5 минут
-        LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(5);
+        LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(1);
         return user.getLastActivity().isAfter(fiveMinutesAgo);
     }
 
@@ -293,37 +290,5 @@ public class UserService {
         return years + " лет назад";
     }
 
-    // Добавьте метод formatLastSeenForDisplay в UserService тоже:
-    private String formatLastSeenForDisplay(LocalDateTime lastSeen) {
-        if (lastSeen == null) return "никогда";
 
-        Duration duration = Duration.between(lastSeen, LocalDateTime.now());
-        long minutes = duration.toMinutes();
-
-        if (minutes < 1) return "только что";
-        if (minutes == 1) return "1 минуту назад";
-        if (minutes < 5) return minutes + " минуты назад";
-        if (minutes < 60) return minutes + " минут назад";
-
-        long hours = duration.toHours();
-        if (hours == 1) return "1 час назад";
-        if (hours < 5) return hours + " часа назад";
-        if (hours < 24) return hours + " часов назад";
-
-        long days = duration.toDays();
-        if (days == 1) return "вчера";
-        if (days == 2) return "позавчера";
-        if (days < 7) return days + " дня назад";
-        if (days < 30) return days + " дней назад";
-
-        // Больше месяца
-        long months = days / 30;
-        if (months == 1) return "месяц назад";
-        if (months < 12) return months + " месяцев назад";
-
-        // Больше года
-        long years = months / 12;
-        if (years == 1) return "год назад";
-        return years + " лет назад";
-    }
 }
