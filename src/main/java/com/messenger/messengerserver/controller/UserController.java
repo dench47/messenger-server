@@ -107,4 +107,29 @@ public class UserController {
             return ResponseEntity.badRequest().build();
         }
     }
+
+    @PostMapping("/update-fcm-token")
+    public ResponseEntity<?> updateFcmToken(@RequestBody Map<String, String> request) {
+        try {
+            String username = request.get("username");
+            String fcmToken = request.get("fcmToken");
+
+            if (username == null || fcmToken == null) {
+                return ResponseEntity.badRequest().body("Username and fcmToken are required");
+            }
+
+            User user = userService.findByUsername(username)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            user.setFcmToken(fcmToken);
+            userService.save(user); // Нужно добавить метод save в UserService
+
+            System.out.println("✅ FCM token updated for user: " + username);
+            return ResponseEntity.ok("FCM token updated");
+
+        } catch (Exception e) {
+            System.err.println("❌ Error updating FCM token: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error updating FCM token");
+        }
+    }
 }

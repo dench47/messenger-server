@@ -187,8 +187,8 @@ public class UserService {
             return false;
         }
 
-        LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(1);
-        return user.getLastActivity().isAfter(fiveMinutesAgo);
+        LocalDateTime oneMinuteAgo = LocalDateTime.now().minusMinutes(1);
+        return user.getLastActivity().isAfter(oneMinuteAgo);
     }
 
     @Scheduled(fixedRate = 30000)
@@ -290,5 +290,8 @@ public class UserService {
         return years + " лет назад";
     }
 
+    public void save(User user) {
+        userRepository.save(user);
+    }
 
 }

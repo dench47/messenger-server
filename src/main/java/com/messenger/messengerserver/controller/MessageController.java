@@ -2,7 +2,10 @@ package com.messenger.messengerserver.controller;
 
 import com.messenger.messengerserver.dto.MessageDto;
 import com.messenger.messengerserver.model.Message;
+import com.messenger.messengerserver.model.User;
+import com.messenger.messengerserver.service.FcmService;
 import com.messenger.messengerserver.service.MessageService;
+import com.messenger.messengerserver.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -11,6 +14,8 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 @RestController
@@ -23,6 +28,12 @@ public class MessageController {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private UserService userService;
+
+    @Autowired
+    private FcmService fcmService; // Добавить
 
     // WebSocket endpoint для отправки сообщений в реальном времени
     @MessageMapping("/chat")
@@ -39,6 +50,25 @@ public class MessageController {
 
             MessageDto responseDto = convertToDto(message);
 
+            // +++ ДОБАВЬ ЭТОТ КОД: ОТПРАВКА FCM +++
+            System.out.println("🔵 [FCM WS] Before FCM call in WebSocket");
+            System.out.println("   Sender: " + messageDto.getSenderUsername());
+            System.out.println("   Receiver: " + messageDto.getReceiverUsername());
+
+            // Отправляем FCM уведомление
+            try {
+                fcmService.sendNewMessageNotification(
+                        messageDto.getSenderUsername(),
+                        messageDto.getReceiverUsername(),
+                        messageDto.getContent()
+                );
+                System.out.println("✅ [FCM WS] FCM sent successfully via WebSocket");
+            } catch (Exception fcmEx) {
+                System.err.println("❌ [FCM WS] Error sending FCM: " + fcmEx.getMessage());
+                fcmEx.printStackTrace();
+            }
+            // +++ КОНЕЦ ДОБАВЛЕННОГО КОДА +++
+
             // Отправляем сообщение ПОЛУЧАТЕЛЮ
             messagingTemplate.convertAndSendToUser(
                     messageDto.getReceiverUsername(),
@@ -46,7 +76,7 @@ public class MessageController {
                     responseDto
             );
 
-            // +++ ДОБАВИТЬ ЭТО +++ Отправляем сообщение ОТПРАВИТЕЛЮ
+            // Отправляем сообщение ОТПРАВИТЕЛЮ
             messagingTemplate.convertAndSendToUser(
                     messageDto.getSenderUsername(),
                     "/queue/messages",
@@ -84,9 +114,26 @@ public class MessageController {
             );
 
             MessageDto responseDto = convertToDto(message);
+
+            // +++ ДОБАВЬТЕ ЭТОТ ЛОГ +++
+            System.out.println("🔵 [FCM CHECK] Before calling fcmService.sendNewMessageNotification");
+            System.out.println("   Sender: " + messageDto.getSenderUsername());
+            System.out.println("   Receiver: " + messageDto.getReceiverUsername());
+            System.out.println("   fcmService is null? " + (fcmService == null));
+
+            // Вызов FCM
+            fcmService.sendNewMessageNotification(
+                    messageDto.getSenderUsername(),
+                    messageDto.getReceiverUsername(),
+                    messageDto.getContent()
+            );
+
+            System.out.println("✅ [FCM CHECK] After fcmService call");
+
             return ResponseEntity.ok(responseDto);
 
         } catch (Exception e) {
+            System.err.println("❌ Error sending message: " + e.getMessage());
             return ResponseEntity.badRequest().build();
         }
     }

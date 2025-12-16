@@ -19,6 +19,9 @@ public class User {
     @Column(nullable = false)
     private String password;
 
+    @Column(name = "fcm_token")
+    private String fcmToken;
+
     private String displayName;
     private String avatarUrl;
 
@@ -44,6 +47,14 @@ public class User {
         this.username = username;
         this.password = password;
         this.displayName = username;
+    }
+
+    public String getFcmToken() {
+        return fcmToken;
+    }
+
+    public void setFcmToken(String fcmToken) {
+        this.fcmToken = fcmToken;
     }
 
     // Геттеры и сеттеры

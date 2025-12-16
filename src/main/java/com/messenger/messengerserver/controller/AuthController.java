@@ -104,6 +104,12 @@ public class AuthController {
     @PostMapping("/logout")
     public ResponseEntity<?> logout(@RequestBody Map<String, String> request) {
         String username = request.get("username");
+
+        // ДОБАВИМ ОТЛАДКУ
+        System.out.println("🔴🔴🔴 LOGOUT ENDPOINT CALLED!");
+        System.out.println("🔴🔴🔴 Username: " + username);
+        System.out.println("🔴🔴🔴 Request: " + request);
+        System.out.println("🔴🔴🔴 Stack trace:");
         if (username != null) {
             userService.setUserOffline(username);
 
