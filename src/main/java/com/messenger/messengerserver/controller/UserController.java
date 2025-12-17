@@ -23,13 +23,22 @@ public class UserController {
     public ResponseEntity<List<UserWithStatusDTO>> getUsers() {
         try {
             List<User> users = userService.getAllUsers();
-            List<String> onlineUsernames = userService.getOnlineUsers();
 
             List<UserWithStatusDTO> usersWithStatus = users.stream()
                     .map(user -> {
-                        boolean hasWebSocket = onlineUsernames.contains(user.getUsername());
-                        boolean isActuallyActive = userService.isUserActuallyActive(user.getUsername());
-                        return new UserWithStatusDTO(user, hasWebSocket, isActuallyActive);
+                        // Используем методы сервиса
+                        String status = userService.determineUserStatus(user.getUsername());
+                        String lastSeenText = userService.formatTimeAgo(user.getLastSeen());
+
+                        // Создаем DTO с готовыми значениями
+                        return new UserWithStatusDTO(
+                                user.getId(),
+                                user.getUsername(),
+                                user.getDisplayName(),
+                                user.getAvatarUrl(),
+                                status,
+                                lastSeenText
+                        );
                     })
                     .collect(Collectors.toList());
 
@@ -44,12 +53,21 @@ public class UserController {
     public ResponseEntity<List<UserWithStatusDTO>> searchUsers(@RequestParam String query) {
         try {
             List<User> users = userService.searchUsers(query);
-            List<String> onlineUsernames = userService.getOnlineUsers();
 
             List<UserWithStatusDTO> usersWithStatus = users.stream()
                     .map(user -> {
-                        boolean isActuallyOnline = onlineUsernames.contains(user.getUsername());
-                        return new UserWithStatusDTO(user, isActuallyOnline);
+                        // Используем те же методы сервиса
+                        String status = userService.determineUserStatus(user.getUsername());
+                        String lastSeenText = userService.formatTimeAgo(user.getLastSeen());
+
+                        return new UserWithStatusDTO(
+                                user.getId(),
+                                user.getUsername(),
+                                user.getDisplayName(),
+                                user.getAvatarUrl(),
+                                status,
+                                lastSeenText
+                        );
                     })
                     .collect(Collectors.toList());
 

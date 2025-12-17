@@ -14,76 +14,22 @@ public class UserWithStatusDTO {
 
     public UserWithStatusDTO() {}
 
-    public UserWithStatusDTO(User user, boolean isActuallyOnline) {
-        this.id = user.getId();
-        this.username = user.getUsername();
-        this.displayName = user.getDisplayName();
-        this.avatarUrl = user.getAvatarUrl();
-        this.status = calculateStatus(user, isActuallyOnline);
-        this.lastSeenText = formatLastSeen(user.getLastSeen());
+    public UserWithStatusDTO(Long id, String username, String displayName,
+                             String avatarUrl, String status, String lastSeenText) {
+        this.id = id;
+        this.username = username;
+        this.displayName = displayName;
+        this.avatarUrl = avatarUrl;
+        this.status = status;
+        this.lastSeenText = lastSeenText;
     }
 
-    public UserWithStatusDTO(User user, boolean hasWebSocket, boolean isActuallyActive) {
-        this.id = user.getId();
-        this.username = user.getUsername();
-        this.displayName = user.getDisplayName();
-        this.avatarUrl = user.getAvatarUrl();
-        this.status = calculateStatus(hasWebSocket, isActuallyActive);
-        this.lastSeenText = formatLastSeen(user.getLastSeen());
-    }
 
-    private String calculateStatus(boolean hasWebSocket, boolean isActuallyActive) {
-        // ДЕБАГ вывод
-        System.out.println("DEBUG: hasWebSocket=" + hasWebSocket + ", isActuallyActive=" + isActuallyActive);
 
-        if (!hasWebSocket) {
-            return "offline";
-        }
 
-        if (isActuallyActive) {
-            return "active";
-        } else {
-            return "inactive"; // ← ДОЛЖЕН ВЫЗЫВАТЬСЯ!
-        }
-    }
 
-    private String calculateStatus(User user, boolean isActuallyOnline) {
-        if (!isActuallyOnline) {
-            return "offline";
-        }
 
-        if (user.getLastActivity() != null) {
-            LocalDateTime twoMinutesAgo = LocalDateTime.now().minusMinutes(2);
-            if (user.getLastActivity().isAfter(twoMinutesAgo)) {
-                return "active";
-            } else {
-                return "inactive";
-            }
-        }
 
-        return "online";
-    }
-
-    private String formatLastSeen(LocalDateTime lastSeen) {
-        if (lastSeen == null) return "never";
-
-        Duration duration = Duration.between(lastSeen, LocalDateTime.now());
-        long minutes = duration.toMinutes();
-
-        if (minutes < 1) return "just now";
-        if (minutes == 1) return "1 minute ago";
-        if (minutes < 60) return minutes + " minutes ago";
-
-        long hours = duration.toHours();
-        if (hours == 1) return "1 hour ago";
-        if (hours < 24) return hours + " hours ago";
-
-        long days = duration.toDays();
-        if (days == 1) return "yesterday";
-        if (days < 7) return days + " days ago";
-
-        return "long time ago";
-    }
 
     // Геттеры и сеттеры
     public Long getId() { return id; }

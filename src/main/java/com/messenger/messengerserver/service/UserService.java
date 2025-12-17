@@ -259,7 +259,7 @@ public class UserService {
         }
     }
 
-    private String formatTimeAgo(LocalDateTime time) {
+    public String formatTimeAgo(LocalDateTime time) {
         if (time == null) return "никогда";
 
         Duration duration = Duration.between(time, LocalDateTime.now());
@@ -292,6 +292,16 @@ public class UserService {
 
     public void save(User user) {
         userRepository.save(user);
+    }
+
+    public String determineUserStatus(String username) {
+        boolean hasWebSocket = isUserOnline(username);
+        boolean isActuallyActive = isUserActuallyActive(username);
+
+        if (!hasWebSocket) {
+            return "offline";
+        }
+        return isActuallyActive ? "active" : "inactive";
     }
 
 }
