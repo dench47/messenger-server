@@ -17,7 +17,7 @@ public class MessageService {
     @Autowired
     private UserService userService;
 
-    public Message sendMessage(String content, String senderUsername, String receiverUsername) {
+    public Message saveMessage(String content, String senderUsername, String receiverUsername) {
         User sender = userService.findByUsername(senderUsername)
                 .orElseThrow(() -> new RuntimeException("Sender not found"));
         User receiver = userService.findByUsername(receiverUsername)

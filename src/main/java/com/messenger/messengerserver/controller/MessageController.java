@@ -2,7 +2,6 @@ package com.messenger.messengerserver.controller;
 
 import com.messenger.messengerserver.dto.MessageDto;
 import com.messenger.messengerserver.model.Message;
-import com.messenger.messengerserver.model.User;
 import com.messenger.messengerserver.service.FcmService;
 import com.messenger.messengerserver.service.MessageService;
 import com.messenger.messengerserver.service.UserService;
@@ -14,8 +13,6 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 @RestController
@@ -42,7 +39,7 @@ public class MessageController {
             System.out.println("WebSocket message received from: " + messageDto.getSenderUsername() + " to: " + messageDto.getReceiverUsername());
 
             // Сохраняем сообщение в базу
-            Message message = messageService.sendMessage(
+            Message message = messageService.saveMessage(
                     messageDto.getContent(),
                     messageDto.getSenderUsername(),
                     messageDto.getReceiverUsername()
@@ -60,7 +57,8 @@ public class MessageController {
                 fcmService.sendNewMessageNotification(
                         messageDto.getSenderUsername(),
                         messageDto.getReceiverUsername(),
-                        messageDto.getContent()
+                        messageDto.getContent(),
+                        message.getId()  // ← ПЕРЕДАЕМ РЕАЛЬНЫЙ ID
                 );
                 System.out.println("✅ [FCM WS] FCM sent successfully via WebSocket");
             } catch (Exception fcmEx) {
@@ -107,7 +105,7 @@ public class MessageController {
     @PostMapping("/send")
     public ResponseEntity<MessageDto> sendMessage(@RequestBody MessageDto messageDto) {
         try {
-            Message message = messageService.sendMessage(
+            Message message = messageService.saveMessage(
                     messageDto.getContent(),
                     messageDto.getSenderUsername(),
                     messageDto.getReceiverUsername()
@@ -125,7 +123,8 @@ public class MessageController {
             fcmService.sendNewMessageNotification(
                     messageDto.getSenderUsername(),
                     messageDto.getReceiverUsername(),
-                    messageDto.getContent()
+                    messageDto.getContent(),
+                    message.getId()  // ← ПЕРЕДАЕМ РЕАЛЬНЫЙ ID
             );
 
             System.out.println("✅ [FCM CHECK] After fcmService call");
