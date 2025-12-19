@@ -294,6 +294,11 @@ public class UserService {
         userRepository.save(user);
     }
 
+    // Добавьте этот метод в UserService
+    public User saveUser(User user) {
+        return userRepository.save(user);
+    }
+
     public String determineUserStatus(String username) {
         boolean hasWebSocket = isUserOnline(username);
         boolean isActuallyActive = isUserActuallyActive(username);

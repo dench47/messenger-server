@@ -150,4 +150,6 @@ public class UserController {
             return ResponseEntity.internalServerError().body("Error updating FCM token");
         }
     }
+
+
 }

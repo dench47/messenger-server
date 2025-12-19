@@ -31,6 +31,64 @@ public class AuthController {
 
     @Autowired
     private UserService userService;
+    @Autowired
+    private PasswordEncoder passwordEncoder; // Добавьте это поле
+
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@RequestBody Map<String, String> request) {
+        try {
+            String username = request.get("username");
+            String password = request.get("password");
+            String displayName = request.get("displayName");
+
+            System.out.println("🔵 [REGISTER] Attempting to register user: " + username);
+
+            // Проверка обязательных полей
+            if (username == null || username.trim().isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Username is required");
+            }
+            if (password == null || password.trim().isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Password is required");
+            }
+
+            // Проверяем существует ли пользователь
+            if (userService.findByUsername(username).isPresent()) {
+                System.out.println("❌ [REGISTER] User already exists: " + username);
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body("User '" + username + "' already exists");
+            }
+
+            // Создаем нового пользователя с зашифрованным паролем
+            String encodedPassword = passwordEncoder.encode(password);
+            User newUser = new User(username, encodedPassword);
+
+            // Устанавливаем displayName
+            if (displayName != null && !displayName.trim().isEmpty()) {
+                newUser.setDisplayName(displayName);
+            } else {
+                newUser.setDisplayName(username);
+            }
+
+            // Сохраняем пользователя
+            userService.saveUser(newUser);
+
+            System.out.println("✅ [REGISTER] User created successfully: " + username);
+
+            // Возвращаем успешный ответ
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(Map.of(
+                            "message", "User registered successfully",
+                            "username", username,
+                            "displayName", newUser.getDisplayName()
+                    ));
+
+        } catch (Exception e) {
+            System.err.println("❌ [REGISTER] Error: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Registration failed: " + e.getMessage());
+        }
+    }
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody AuthRequest authRequest) {
@@ -119,5 +177,29 @@ public class AuthController {
             System.out.println("🔴 User logged out and disconnected: " + username);
         }
         return ResponseEntity.ok("Logged out successfully");
+    }
+
+    @PostMapping("/remove-fcm-token")
+    public ResponseEntity<?> removeFcmToken(@RequestBody Map<String, String> request) {
+        try {
+            String username = request.get("username");
+
+            if (username == null) {
+                return ResponseEntity.badRequest().body("Username is required");
+            }
+
+            User user = userService.findByUsername(username)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            user.setFcmToken(null);
+            userService.save(user);
+
+            System.out.println("🗑️ FCM token removed for user: " + username);
+            return ResponseEntity.ok("FCM token removed");
+
+        } catch (Exception e) {
+            System.err.println("❌ Error removing FCM token: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error removing FCM token");
+        }
     }
 }
