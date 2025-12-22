@@ -202,4 +202,36 @@ public class AuthController {
             return ResponseEntity.internalServerError().body("Error removing FCM token");
         }
     }
+
+    @PostMapping("/refresh-long")
+    public ResponseEntity<?> refreshLongToken(@RequestBody Map<String, String> request) {
+        String refreshToken = request.get("refreshToken");
+
+        if (refreshToken == null || !jwtUtil.validateToken(refreshToken)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid refresh token");
+        }
+
+        try {
+            String username = jwtUtil.getUsernameFromToken(refreshToken);
+            User user = userService.findByUsername(username)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            // ВАЖНО: Генерируем НОВЫЙ refresh token с таким же сроком
+            String newAccessToken = jwtUtil.generateAccessToken(username);
+            String newRefreshToken = jwtUtil.generateRefreshToken(username); // ← НОВЫЙ refresh!
+
+            AuthResponse authResponse = new AuthResponse(
+                    newAccessToken,
+                    newRefreshToken, // Отправляем новый refresh token клиенту
+                    jwtUtil.getAccessTokenExpiration(),
+                    username,
+                    user.getDisplayName() != null ? user.getDisplayName() : user.getUsername()
+            );
+
+            return ResponseEntity.ok(authResponse);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token refresh failed");
+        }
+    }
 }

@@ -95,39 +95,48 @@ public class WebSocketEventListener {
     private void sendImmediateUserStatusUpdate(String username, boolean isOnline) {
         try {
             boolean isActuallyActive = userService.isUserActuallyActive(username);
-            String status = isOnline ? (isActuallyActive ? "active" : "inactive") : "offline";
+            User user = userService.findByUsername(username).orElse(null);
+            boolean hasWebSocket = userService.isUserOnline(username);
+
+            // Используем централизованное форматирование
+            String displayText = UserService.StatusFormatter.formatStatusForDisplay(user, hasWebSocket);
+            boolean showAsOnline = hasWebSocket && isActuallyActive;
 
             Map<String, Object> statusUpdate = new HashMap<>();
             statusUpdate.put("type", "USER_STATUS_UPDATE");
             statusUpdate.put("username", username);
-            statusUpdate.put("online", isOnline);
-            statusUpdate.put("active", isActuallyActive && isOnline);
-            statusUpdate.put("status", status);
+            statusUpdate.put("online", showAsOnline);
+            statusUpdate.put("active", isActuallyActive);
+            statusUpdate.put("status", isActuallyActive ? "active" : "inactive");
+            statusUpdate.put("lastSeenText", displayText);
 
             messagingTemplate.convertAndSend("/topic/user.events", statusUpdate);
 
-            System.out.println("⚡⚡⚡ IMMEDIATE STATUS SENT: " + username +
-                    " -> online=" + isOnline +
-                    ", active=" + isActuallyActive +
-                    ", status=" + status);
+            System.out.println("⚡ IMMEDIATE STATUS: " + username +
+                    " -> online=" + showAsOnline +
+                    ", text=" + displayText);
         } catch (Exception e) {
-            System.err.println("❌❌❌ Error sending immediate status: " + e.getMessage());
-            e.printStackTrace();        }
+            System.err.println("❌ Error sending immediate status: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
     private void sendUserDisconnectedEvent(String username) {
         try {
             User user = userService.findByUsername(username)
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
+            // Используем централизованное форматирование
+            String displayText = UserService.StatusFormatter.formatLastSeenDetailed(user.getLastSeen());
+
             Map<String, Object> disconnectEvent = new HashMap<>();
             disconnectEvent.put("type", "USER_DISCONNECTED");
             disconnectEvent.put("username", username);
             disconnectEvent.put("online", false);
             disconnectEvent.put("lastSeen", user.getLastSeen());
-            disconnectEvent.put("lastSeenText", formatLastSeenForDisplay(user.getLastSeen()));
+            disconnectEvent.put("lastSeenText", displayText);
 
             messagingTemplate.convertAndSend("/topic/user.events", disconnectEvent);
-            System.out.println("📢 Sent disconnect event with lastSeenText: " + username + " - " + formatLastSeenForDisplay(user.getLastSeen()));
+            System.out.println("📢 Sent disconnect event: " + username + " - " + displayText);
         } catch (Exception e) {
             System.err.println("❌ Error sending disconnect event: " + e.getMessage());
         }
@@ -144,30 +153,30 @@ public class WebSocketEventListener {
         }
     }
 
-    private String formatLastSeenForDisplay(LocalDateTime lastSeen) {
-        if (lastSeen == null) return "никогда";
-
-        Duration duration = Duration.between(lastSeen, LocalDateTime.now());
-        long minutes = duration.toMinutes();
-
-        if (minutes < 1) return "только что";
-        if (minutes == 1) return "1 минуту назад";
-        if (minutes < 5) return minutes + " минуты назад";
-        if (minutes < 60) return minutes + " минут назад";
-
-        long hours = duration.toHours();
-        if (hours == 1) return "1 час назад";
-        if (hours < 5) return hours + " часа назад";
-        if (hours < 24) return hours + " часов назад";
-
-        long days = duration.toDays();
-        if (days == 1) return "вчера";
-        if (days == 2) return "позавчера";
-        if (days < 7) return days + " дня назад";
-        if (days < 30) return days + " дней назад";
-
-        // Больше месяца - показываем дату
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yy");
-        return lastSeen.format(formatter);
-    }
+//    private String formatLastSeenForDisplay(LocalDateTime lastSeen) {
+//        if (lastSeen == null) return "никогда";
+//
+//        Duration duration = Duration.between(lastSeen, LocalDateTime.now());
+//        long minutes = duration.toMinutes();
+//
+//        if (minutes < 1) return "только что";
+//        if (minutes == 1) return "1 минуту назад";
+//        if (minutes < 5) return minutes + " минуты назад";
+//        if (minutes < 60) return minutes + " минут назад";
+//
+//        long hours = duration.toHours();
+//        if (hours == 1) return "1 час назад";
+//        if (hours < 5) return hours + " часа назад";
+//        if (hours < 24) return hours + " часов назад";
+//
+//        long days = duration.toDays();
+//        if (days == 1) return "вчера";
+//        if (days == 2) return "позавчера";
+//        if (days < 7) return days + " дня назад";
+//        if (days < 30) return days + " дней назад";
+//
+//        // Больше месяца - показываем дату
+//        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yy");
+//        return lastSeen.format(formatter);
+//    }
 }

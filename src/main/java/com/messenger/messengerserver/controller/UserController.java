@@ -19,27 +19,39 @@ public class UserController {
     @Autowired
     private UserService userService;
 
+    // НОВЫЙ МЕТОД: общая логика преобразования User -> UserWithStatusDTO
+    private UserWithStatusDTO convertUserToDTO(User user) {
+        boolean hasWebSocket = userService.isUserOnline(user.getUsername());
+        boolean isActuallyActive = userService.isUserActuallyActive(user.getUsername());
+
+        String status;
+        String lastSeenText;
+
+        if (hasWebSocket) {
+            status = isActuallyActive ? "active" : "inactive";
+            lastSeenText = UserService.StatusFormatter.formatStatusForDisplay(user, hasWebSocket);
+        } else {
+            status = "offline";
+            lastSeenText = UserService.StatusFormatter.formatLastSeenDetailed(user.getLastSeen());
+        }
+
+        return new UserWithStatusDTO(
+                user.getId(),
+                user.getUsername(),
+                user.getDisplayName(),
+                user.getAvatarUrl(),
+                status,
+                lastSeenText
+        );
+    }
+
     @GetMapping
     public ResponseEntity<List<UserWithStatusDTO>> getUsers() {
         try {
             List<User> users = userService.getAllUsers();
 
             List<UserWithStatusDTO> usersWithStatus = users.stream()
-                    .map(user -> {
-                        // Используем методы сервиса
-                        String status = userService.determineUserStatus(user.getUsername());
-                        String lastSeenText = userService.formatTimeAgo(user.getLastSeen());
-
-                        // Создаем DTO с готовыми значениями
-                        return new UserWithStatusDTO(
-                                user.getId(),
-                                user.getUsername(),
-                                user.getDisplayName(),
-                                user.getAvatarUrl(),
-                                status,
-                                lastSeenText
-                        );
-                    })
+                    .map(this::convertUserToDTO)
                     .collect(Collectors.toList());
 
             return ResponseEntity.ok(usersWithStatus);
@@ -55,20 +67,7 @@ public class UserController {
             List<User> users = userService.searchUsers(query);
 
             List<UserWithStatusDTO> usersWithStatus = users.stream()
-                    .map(user -> {
-                        // Используем те же методы сервиса
-                        String status = userService.determineUserStatus(user.getUsername());
-                        String lastSeenText = userService.formatTimeAgo(user.getLastSeen());
-
-                        return new UserWithStatusDTO(
-                                user.getId(),
-                                user.getUsername(),
-                                user.getDisplayName(),
-                                user.getAvatarUrl(),
-                                status,
-                                lastSeenText
-                        );
-                    })
+                    .map(this::convertUserToDTO)
                     .collect(Collectors.toList());
 
             return ResponseEntity.ok(usersWithStatus);

@@ -63,6 +63,7 @@ public class UserService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
         user.setLastSeen(LocalDateTime.now());
         userRepository.save(user);
+        sendImmediateStatusUpdate(username);
         System.out.println("⏰ Last seen updated for " + username + ": " + user.getLastSeen());
     }
 
@@ -166,33 +167,15 @@ public class UserService {
         System.out.println("🔄 Activity updated for: " + username);
     }
 
-    public boolean isUserActive(String username) {
-        User user = findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        if (user.getLastActivity() == null) {
-            return user.getOnline(); // Если нет активности, смотрим онлайн статус
-        }
-
-        // Считаем активным, если была активность в последние 2 минуты
-        LocalDateTime twoMinutesAgo = LocalDateTime.now().minusMinutes(2);
-        return user.getLastActivity().isAfter(twoMinutesAgo) && user.getOnline();
-    }
-
-    public boolean isUserActuallyActive(String username) {
+        public boolean isUserActuallyActive(String username) {
         Optional<User> userOpt = findByUsername(username);
-        if (userOpt.isEmpty()) {
-            return false;
-        }
+        if (userOpt.isEmpty()) return false;
 
         User user = userOpt.get();
+        if (user.getLastActivity() == null) return false;
 
-        if (user.getLastActivity() == null) {
-            return false;
-        }
-
-        // Активен если была активность менее ONLINE_THRESHOLD_MINUTES минут назад
-        LocalDateTime activeThreshold = LocalDateTime.now().minusMinutes(ONLINE_THRESHOLD_MINUTES);
+        // ИЗМЕНЕНИЕ: 1 минута вместо 2
+        LocalDateTime activeThreshold = LocalDateTime.now().minusMinutes(1);
         return user.getLastActivity().isAfter(activeThreshold);
     }
 
@@ -206,143 +189,27 @@ public class UserService {
             System.out.println("🔄 Scheduled status broadcast for " + allUsers.size() + " users");
 
             for (User user : allUsers) {
+                Map<String, Object> statusUpdate = prepareStatusUpdate(user);
+
                 String username = user.getUsername();
-
-                boolean hasWebSocket = userSessions.containsKey(username);
-                boolean isActuallyActive = isUserActuallyActive(username); // lastActivity < 2 мин
-
-                String status;
-                String displayText = null;
-                boolean showAsOnline = false;
-
-                // НОВАЯ ЛОГИКА WHATSAPP:
-                if (hasWebSocket) {
-                    if (isActuallyActive) {
-                        // Активно в приложении (< 2 мин)
-                        status = "active";
-                        displayText = "online";
-                        showAsOnline = true;
-                        System.out.println("   👤 " + username + ": ОНЛАЙН (активен < 2 мин)");
-                    } else {
-                        // В фоне (> 2 мин), но WebSocket есть
-                        LocalDateTime lastActivity = user.getLastActivity();
-                        if (lastActivity != null) {
-                            Duration inactiveDuration = Duration.between(lastActivity, LocalDateTime.now());
-                            long inactiveMinutes = inactiveDuration.toMinutes();
-
-                            if (inactiveMinutes < 5) {
-                                status = "inactive";
-                                displayText = formatTimeAgo(lastActivity); // "2 мин назад"
-                                showAsOnline = false; // ← НЕ показываем как онлайн!
-                                System.out.println("   👤 " + username + ": В ФОНЕ (2-5 мин): " + displayText);
-                            } else {
-                                // В фоне > 5 минут: "Был в 14:30"
-                                status = "offline";
-                                displayText = formatLastSeenForDisplay(lastActivity); // "Был в 14:30"
-                                showAsOnline = false;
-                                System.out.println("   👤 " + username + ": В ФОНЕ (>5 мин): " + displayText);
-                            }
-                        } else {
-                            status = "inactive";
-                            displayText = "был недавно";
-                            showAsOnline = false;
-                            System.out.println("   👤 " + username + ": В ФОНЕ (нет lastActivity)");
-                        }
-                    }
-                } else {
-                    // Нет WebSocket (приложение закрыто)
-                    status = "offline";
-                    LocalDateTime lastSeen = user.getLastSeen();
-
-                    if (lastSeen != null) {
-                        displayText = formatLastSeenForDisplay(lastSeen); // "Был в 14:30"
-                        System.out.println("   👤 " + username + ": ОФФЛАЙН: " + displayText);
-                    } else {
-                        displayText = "никогда";
-                        System.out.println("   👤 " + username + ": ОФФЛАЙН (никогда не был)");
-                    }
-                    showAsOnline = false;
-                }
-
-                Map<String, Object> statusUpdate = new HashMap<>();
-                statusUpdate.put("type", "USER_STATUS_UPDATE");
-                statusUpdate.put("username", username);
-                statusUpdate.put("online", showAsOnline); // true ТОЛЬКО если активно в приложении (<2 мин)
-                statusUpdate.put("active", isActuallyActive);
-                statusUpdate.put("status", status);
-                statusUpdate.put("lastSeenText", displayText);
+                boolean showAsOnline = (boolean) statusUpdate.get("online");
+                String displayText = (String) statusUpdate.get("lastSeenText");
 
                 messagingTemplate.convertAndSend("/topic/user.events", statusUpdate);
+
+                System.out.println("   👤 " + username + ": " +
+                        (showAsOnline ? "🟢" : "🔴") + " " + displayText);
             }
 
             System.out.println("✅ Status broadcast completed");
         } catch (Exception e) {
-            System.err.println("❌❌❌ ERROR in status broadcast: " + e.getMessage());
+            System.err.println("❌❌❌ ERROR: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    public String formatLastSeenForDisplay(LocalDateTime lastSeen) {
-        if (lastSeen == null) return "никогда";
 
-        LocalDateTime now = LocalDateTime.now();
-        DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
-        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd.MM");
-        DateTimeFormatter fullDateFormatter = DateTimeFormatter.ofPattern("dd.MM.yy");
 
-        // 1. Если сегодня
-        if (lastSeen.toLocalDate().equals(now.toLocalDate())) {
-            return "Был в " + lastSeen.format(timeFormatter);
-        }
-        // 2. Если вчера
-        else if (lastSeen.toLocalDate().equals(now.toLocalDate().minusDays(1))) {
-            return "Был вчера в " + lastSeen.format(timeFormatter);
-        }
-        // 3. Если на этой неделе (послезавтра - 6 дней назад)
-        else if (lastSeen.isAfter(now.minusDays(7))) {
-            // Просто показываем дату без названия дня
-            return "Был " + lastSeen.format(dateFormatter) + " в " + lastSeen.format(timeFormatter);
-        }
-        // 4. Если в этом году
-        else if (lastSeen.getYear() == now.getYear()) {
-            return "Был " + lastSeen.format(dateFormatter) + " в " + lastSeen.format(timeFormatter);
-        }
-        // 5. Если давно (больше года)
-        else {
-            return "Был " + lastSeen.format(fullDateFormatter) + " в " + lastSeen.format(timeFormatter);
-        }
-    }
-
-    public String formatTimeAgo(LocalDateTime time) {
-        if (time == null) return "никогда";
-
-        Duration duration = Duration.between(time, LocalDateTime.now());
-        long minutes = duration.toMinutes();
-
-        if (minutes < 1) return "только что";
-        if (minutes == 1) return "1 минуту назад";
-        if (minutes < 5) return minutes + " минуты назад";
-        if (minutes < 60) return minutes + " минут назад";
-
-        long hours = duration.toHours();
-        if (hours == 1) return "1 час назад";
-        if (hours < 5) return hours + " часа назад";
-        if (hours < 24) return hours + " часов назад";
-
-        long days = duration.toDays();
-        if (days == 1) return "вчера";
-        if (days == 2) return "позавчера";
-        if (days < 7) return days + " дня назад";
-        if (days < 30) return days + " дней назад";
-
-        long months = days / 30;
-        if (months == 1) return "месяц назад";
-        if (months < 12) return months + " месяцев назад";
-
-        long years = months / 12;
-        if (years == 1) return "год назад";
-        return years + " лет назад";
-    }
 
     public void save(User user) {
         userRepository.save(user);
@@ -353,14 +220,133 @@ public class UserService {
         return userRepository.save(user);
     }
 
-    public String determineUserStatus(String username) {
-        boolean hasWebSocket = isUserOnline(username);
+
+
+    public class StatusFormatter {
+
+        public static String formatStatusForDisplay(User user, boolean hasWebSocket) {
+            if (user == null) return "offline";
+
+            LocalDateTime lastSeen = user.getLastSeen();
+            LocalDateTime lastActivity = user.getLastActivity();
+            LocalDateTime referenceTime = lastActivity != null ? lastActivity : lastSeen;
+
+            if (hasWebSocket) {
+                if (referenceTime != null) {
+                    Duration duration = Duration.between(referenceTime, LocalDateTime.now());
+                    long minutes = duration.toMinutes();
+
+                    // ИЗМЕНЕНИЕ: 1 минута вместо 2
+                    if (minutes < 1) {
+                        return "online";
+                    } else if (minutes < 5) {
+                        return minutes + " мин назад";
+                    } else if (minutes < 60) {
+                        return minutes + " минут назад";
+                    }
+                }
+                return "был недавно";
+            } else {
+                // Нет WebSocket - точно оффлайн
+                return formatLastSeenDetailed(referenceTime);
+            }
+        }
+
+        public static String formatLastSeenDetailed(LocalDateTime time) {
+            if (time == null) return "никогда";
+
+            LocalDateTime now = LocalDateTime.now();
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
+            DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd.MM");
+
+            if (time.toLocalDate().equals(now.toLocalDate())) {
+                return "Был в " + time.format(timeFormatter);
+            } else if (time.toLocalDate().equals(now.toLocalDate().minusDays(1))) {
+                return "Был вчера в " + time.format(timeFormatter);
+            } else if (time.isAfter(now.minusDays(7))) {
+                return "Был " + time.format(dateFormatter) + " в " + time.format(timeFormatter);
+            } else if (time.getYear() == now.getYear()) {
+                return "Был " + time.format(dateFormatter) + " в " + time.format(timeFormatter);
+            } else {
+                DateTimeFormatter fullDateFormatter = DateTimeFormatter.ofPattern("dd.MM.yy");
+                return "Был " + time.format(fullDateFormatter) + " в " + time.format(timeFormatter);
+            }
+        }
+    }
+
+    public void sendImmediateStatusUpdate(String username) {
+        try {
+            User user = findByUsername(username).orElse(null);
+            if (user == null) return;
+
+            Map<String, Object> statusUpdate = prepareStatusUpdate(user);
+            messagingTemplate.convertAndSend("/topic/user.events", statusUpdate);
+
+            System.out.println("⚡ IMMEDIATE STATUS: " + username + " -> " +
+                    statusUpdate.get("lastSeenText"));
+        } catch (Exception e) {
+            System.err.println("❌ Error sending immediate status: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> prepareStatusUpdate(User user) {
+        String username = user.getUsername();
+        boolean hasWebSocket = userSessions.containsKey(username);
         boolean isActuallyActive = isUserActuallyActive(username);
 
-        if (!hasWebSocket) {
-            return "offline";
+        // Определяем статус и текст
+        String status;
+        String displayText;
+        boolean showAsOnline;
+
+        if (hasWebSocket) {
+            if (isActuallyActive) {
+                // Активно в приложении (< 1 мин)
+                status = "active";
+                displayText = "online";
+                showAsOnline = true;
+            } else {
+                // В фоне (> 1 мин)
+                LocalDateTime lastActivity = user.getLastActivity();
+                LocalDateTime lastSeen = user.getLastSeen();
+                LocalDateTime referenceTime = lastActivity != null ? lastActivity : lastSeen;
+
+                if (referenceTime != null) {
+                    Duration duration = Duration.between(referenceTime, LocalDateTime.now());
+                    long minutes = duration.toMinutes();
+
+                    if (minutes < 5) {
+                        // 1-5 минут: "X минут назад"
+                        status = "inactive";
+                        displayText = minutes + " мин назад";
+                    } else {
+                        // >5 минут: "Был в HH:mm" (как при свайпе)
+                        status = "offline";
+                        displayText = StatusFormatter.formatLastSeenDetailed(referenceTime);
+                    }
+                } else {
+                    status = "inactive";
+                    displayText = "был недавно";
+                }
+                showAsOnline = false;
+            }
+        } else {
+            // Нет WebSocket
+            status = "offline";
+            displayText = StatusFormatter.formatLastSeenDetailed(user.getLastSeen());
+            showAsOnline = false;
         }
-        return isActuallyActive ? "active" : "inactive";
+
+        // Создаем Map
+        Map<String, Object> statusUpdate = new HashMap<>();
+        statusUpdate.put("type", "USER_STATUS_UPDATE");
+        statusUpdate.put("username", username);
+        statusUpdate.put("online", showAsOnline);
+        statusUpdate.put("active", isActuallyActive);
+        statusUpdate.put("status", status);
+        statusUpdate.put("lastSeenText", displayText);
+
+        return statusUpdate;
     }
 
 }
