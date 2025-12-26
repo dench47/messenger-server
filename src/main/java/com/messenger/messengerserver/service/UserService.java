@@ -289,6 +289,7 @@ public class UserService {
         }
     }
 
+    // В методе prepareStatusUpdate(User user) ИЗМЕНЯЕМ логику:
     private Map<String, Object> prepareStatusUpdate(User user) {
         String username = user.getUsername();
         boolean hasWebSocket = userSessions.containsKey(username);
@@ -319,16 +320,18 @@ public class UserService {
                         // 1-5 минут: "X минут назад"
                         status = "inactive";
                         displayText = minutes + " мин назад";
+                        showAsOnline = false;
                     } else {
                         // >5 минут: "Был в HH:mm" (как при свайпе)
                         status = "offline";
                         displayText = StatusFormatter.formatLastSeenDetailed(referenceTime);
+                        showAsOnline = false;
                     }
                 } else {
                     status = "inactive";
                     displayText = "был недавно";
+                    showAsOnline = false;
                 }
-                showAsOnline = false;
             }
         } else {
             // Нет WebSocket
