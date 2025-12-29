@@ -80,4 +80,56 @@ public class FcmService {
             System.out.println("=== 🔵 [FCM TRACE] END ===");
         }
     }
+
+    public void sendIncomingCallNotification(String callerUsername, String receiverUsername) {
+        try {
+            System.out.println("📞 [FCM CALL] Sending incoming call notification");
+            System.out.println("  Caller: " + callerUsername);
+            System.out.println("  Receiver: " + receiverUsername);
+
+            // 1. Получаем получателя и его FCM токен
+            User receiver = userService.findByUsername(receiverUsername)
+                    .orElseThrow(() -> new RuntimeException("Receiver not found for call"));
+
+            String fcmToken = receiver.getFcmToken();
+
+            if (fcmToken == null || fcmToken.isEmpty()) {
+                System.out.println("⚠️ No FCM token for user: " + receiverUsername);
+                return;
+            }
+
+            // 2. Получаем информацию о звонящем
+            User caller = userService.findByUsername(callerUsername).orElse(null);
+            String callerDisplayName = caller != null && caller.getDisplayName() != null
+                    ? caller.getDisplayName()
+                    : callerUsername;
+
+            // 3. Создаем уведомление о звонке
+            Notification notification = Notification.builder()
+                    .setTitle("Входящий звонок")
+                    .setBody(callerDisplayName + " звонит вам")
+                    .build();
+
+            // 4. Создаем сообщение с данными звонка
+            Message message = Message.builder()
+                    .setToken(fcmToken)
+                    .setNotification(notification)
+                    .putData("type", "INCOMING_CALL")
+                    .putData("caller", callerDisplayName)
+                    .putData("callerUsername", callerUsername)
+                    .putData("callType", "audio") // или "video", можно передавать как параметр
+                    .putData("deepLinkAction", "ANSWER_CALL")
+                    .putData("targetUsername", receiverUsername)
+                    .putData("timestamp", String.valueOf(System.currentTimeMillis()))
+                    .build();
+
+            // 5. Отправляем
+            String response = FirebaseMessaging.getInstance().send(message);
+            System.out.println("✅ FCM call notification sent: " + response);
+
+        } catch (Exception e) {
+            System.err.println("❌ Error sending FCM call notification: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
 }

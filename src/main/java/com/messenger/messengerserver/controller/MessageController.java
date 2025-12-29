@@ -13,6 +13,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -30,15 +31,19 @@ public class MessageController {
     private UserService userService;
 
     @Autowired
-    private FcmService fcmService; // Добавить
+    private FcmService fcmService;
 
     // WebSocket endpoint для отправки сообщений в реальном времени
     @MessageMapping("/chat")
     public void processMessage(@Payload MessageDto messageDto) {
         try {
-            System.out.println("WebSocket message received from: " + messageDto.getSenderUsername() + " to: " + messageDto.getReceiverUsername());
+            System.out.println("WebSocket message received from: " + messageDto.getSenderUsername() +
+                    " to: " + messageDto.getReceiverUsername() +
+                    " type: " + messageDto.getType());
 
-            // Сохраняем сообщение в базу
+            // ВАЖНО: Убрали обработку CALL_SIGNAL здесь!
+            // Все call сигналы теперь идут через отдельный endpoint /call
+
             Message message = messageService.saveMessage(
                     messageDto.getContent(),
                     messageDto.getSenderUsername(),
@@ -47,25 +52,19 @@ public class MessageController {
 
             MessageDto responseDto = convertToDto(message);
 
-            // +++ ДОБАВЬ ЭТОТ КОД: ОТПРАВКА FCM +++
-            System.out.println("🔵 [FCM WS] Before FCM call in WebSocket");
-            System.out.println("   Sender: " + messageDto.getSenderUsername());
-            System.out.println("   Receiver: " + messageDto.getReceiverUsername());
-
-            // Отправляем FCM уведомление
+            // Отправляем FCM уведомление для обычных сообщений
             try {
                 fcmService.sendNewMessageNotification(
                         messageDto.getSenderUsername(),
                         messageDto.getReceiverUsername(),
                         messageDto.getContent(),
-                        message.getId()  // ← ПЕРЕДАЕМ РЕАЛЬНЫЙ ID
+                        message.getId()
                 );
                 System.out.println("✅ [FCM WS] FCM sent successfully via WebSocket");
             } catch (Exception fcmEx) {
                 System.err.println("❌ [FCM WS] Error sending FCM: " + fcmEx.getMessage());
                 fcmEx.printStackTrace();
             }
-            // +++ КОНЕЦ ДОБАВЛЕННОГО КОДА +++
 
             // Отправляем сообщение ПОЛУЧАТЕЛЮ
             messagingTemplate.convertAndSendToUser(
@@ -92,12 +91,53 @@ public class MessageController {
             errorDto.setContent("Error sending message: " + e.getMessage());
             errorDto.setSenderUsername("system");
             errorDto.setReceiverUsername(messageDto.getSenderUsername());
+            errorDto.setType("SYSTEM");
 
             messagingTemplate.convertAndSendToUser(
                     messageDto.getSenderUsername(),
                     "/queue/messages",
                     errorDto
             );
+        }
+    }
+
+    // WebSocket endpoint для звонков
+    @MessageMapping("/call")
+    public void processCallSignal(@Payload Map<String, Object> callSignal) {
+        try {
+            System.out.println("📞 Call signal received: " + callSignal);
+
+            String type = (String) callSignal.get("type");
+            String from = (String) callSignal.get("from");
+            String to = (String) callSignal.get("to");
+
+            if (type == null || from == null || to == null) {
+                System.err.println("❌ Invalid call signal format");
+                return;
+            }
+
+            // Отправляем сигнал получателю
+            messagingTemplate.convertAndSendToUser(
+                    to,
+                    "/queue/calls",
+                    callSignal
+            );
+
+            System.out.println("📞 Call signal forwarded to: " + to);
+
+            // Отправляем FCM уведомление для входящих звонков
+            if ("offer".equals(type)) {
+                try {
+                    fcmService.sendIncomingCallNotification(from, to);
+                    System.out.println("📞 FCM call notification sent to: " + to);
+                } catch (Exception fcmEx) {
+                    System.err.println("❌ Error sending call FCM: " + fcmEx.getMessage());
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("❌ Error processing call signal: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -113,18 +153,15 @@ public class MessageController {
 
             MessageDto responseDto = convertToDto(message);
 
-            // +++ ДОБАВЬТЕ ЭТОТ ЛОГ +++
             System.out.println("🔵 [FCM CHECK] Before calling fcmService.sendNewMessageNotification");
             System.out.println("   Sender: " + messageDto.getSenderUsername());
             System.out.println("   Receiver: " + messageDto.getReceiverUsername());
-            System.out.println("   fcmService is null? " + (fcmService == null));
 
-            // Вызов FCM
             fcmService.sendNewMessageNotification(
                     messageDto.getSenderUsername(),
                     messageDto.getReceiverUsername(),
                     messageDto.getContent(),
-                    message.getId()  // ← ПЕРЕДАЕМ РЕАЛЬНЫЙ ID
+                    message.getId()
             );
 
             System.out.println("✅ [FCM CHECK] After fcmService call");
