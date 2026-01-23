@@ -31,6 +31,7 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
 
         if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
+            System.out.println("🔐 WebSocket CONNECT attempt");
             List<String> authHeaders = accessor.getNativeHeader("Authorization");
 
             String username = null;
@@ -38,6 +39,7 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
 
             if (authHeaders != null && !authHeaders.isEmpty()) {
                 String authHeader = authHeaders.get(0);
+                System.out.println("🔐 Authorization header present: " + authHeader.substring(0, Math.min(20, authHeader.length())) + "...");
 
                 if (authHeader.startsWith("Bearer ")) {
                     String jwt = authHeader.substring(7);
@@ -48,16 +50,18 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                             isValidToken = true;
                             System.out.println("✅ WebSocket valid token for: " + username);
                         } else {
-                            System.out.println("❌ WebSocket invalid token");
+                            System.out.println("❌ WebSocket invalid token (expired or malformed)");
                             // Закрываем соединение при невалидном токене
                             throw new Exception("Invalid JWT token");
                         }
                     } catch (Exception e) {
-                        System.out.println("WebSocket auth failed: " + e.getMessage());
+                        System.out.println("❌ WebSocket auth failed: " + e.getMessage());
                         // Закрываем соединение
                         throw new MessagingException("Authentication failed");
                     }
                 }
+            } else {
+                System.out.println("❌ WebSocket CONNECT without Authorization header");
             }
 
             // Устанавливаем аутентификацию только при валидном токене
@@ -72,7 +76,7 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                     // Сохраняем username в атрибуты сессии
                     accessor.getSessionAttributes().put("username", username);
 
-                    System.out.println("✅ WebSocket authenticated: " + username);
+                    System.out.println("✅ WebSocket authenticated: " + username + ", sessionId: " + accessor.getSessionId());
                 } catch (Exception e) {
                     System.out.println("❌ WebSocket user details error: " + e.getMessage());
                     throw new MessagingException("User not found");
@@ -82,6 +86,13 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                 throw new MessagingException("No valid authentication");
             }
         }
+
+        // Также логируем DISCONNECT для отладки
+        if (accessor != null && StompCommand.DISCONNECT.equals(accessor.getCommand())) {
+            String username = (String) accessor.getSessionAttributes().get("username");
+            System.out.println("🔐 WebSocket DISCONNECT for user: " + username);
+        }
+
         return message;
     }
 }

@@ -8,7 +8,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.threeten.bp.format.TextStyle;
 
-
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -25,8 +24,6 @@ public class UserService {
     private SimpMessagingTemplate messagingTemplate;
     private final Map<String, String> userSessions = new ConcurrentHashMap<>();
 
-    private static final int ONLINE_THRESHOLD_MINUTES = 2;    // "online" если активен < 2 мин назад
-    private static final int RECENTLY_THRESHOLD_MINUTES = 5;  // "был недавно" если < 5 мин
     private static final int BROADCAST_INTERVAL_MS = 30000;   // Рассылка каждые 30 сек
 
     public Optional<User> findByUsername(String username) {
@@ -45,6 +42,7 @@ public class UserService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
         user.setOnline(true);
+        user.setLastSeen(LocalDateTime.now()); // Обновляем last seen при входе онлайн
         userRepository.save(user);
         System.out.println("✅ User online: " + username);
     }
@@ -70,7 +68,7 @@ public class UserService {
     // Методы для управления WebSocket сессиями
     public void userConnected(String username, String sessionId) {
         userSessions.put(username, sessionId);
-        setUserOnline(username);
+        setUserOnline(username); // ТОЛЬКО здесь ставим онлайн!
         System.out.println("✅ User connected: " + username + " (Sessions: " + userSessions.size() + ")");
     }
 
@@ -120,15 +118,6 @@ public class UserService {
                     // Определяем онлайн по WebSocket
                     boolean isActuallyOnline = onlineUsernames.contains(user.getUsername());
                     user.setOnline(isActuallyOnline);
-
-                    // Если онлайн, проверяем активность
-                    if (isActuallyOnline && user.getLastActivity() != null) {
-                        LocalDateTime twoMinutesAgo = LocalDateTime.now().minusMinutes(2);
-                        boolean isActive = user.getLastActivity().isAfter(twoMinutesAgo);
-                        // Можно добавить поле "active" или использовать существующее
-                        // user.setActive(isActive); // если добавишь поле
-                    }
-
                     return user;
                 })
                 .toList();
@@ -138,25 +127,21 @@ public class UserService {
         User user = findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // Если ставим онлайн, а WebSocket уже есть - игнорируем
-        if (online && userSessions.containsKey(username)) {
-            System.out.println("⚠️ User already online via WebSocket: " + username);
+        // WebSocket главный! Если есть WebSocket сессия - игнорируем API запрос
+        if (userSessions.containsKey(username)) {
+            System.out.println("🔄 ИГНОРИРУЕМ API статус для " + username +
+                    " - статус уже управляется WebSocket");
             return;
         }
 
-        // Если ставим оффлайн, но есть WebSocket сессия - WebSocket главный
-        if (!online && userSessions.containsKey(username)) {
-            System.out.println("⚠️ User has active WebSocket, keeping online: " + username);
-            return;
-        }
-
+        // Только если НЕТ WebSocket сессии (например, при logout через API)
         user.setOnline(online);
         if (!online) {
             user.setLastSeen(LocalDateTime.now());
         }
         userRepository.save(user);
 
-        System.out.println((online ? "✅" : "🔴") + " User status via API: " + username + " = " + online);
+        System.out.println((online ? "✅" : "🔴") + " User status via API (no WebSocket): " + username + " = " + online);
     }
 
     public void updateUserActivity(String username) {
@@ -167,18 +152,17 @@ public class UserService {
         System.out.println("🔄 Activity updated for: " + username);
     }
 
-        public boolean isUserActuallyActive(String username) {
+    public boolean isUserActuallyActive(String username) {
         Optional<User> userOpt = findByUsername(username);
         if (userOpt.isEmpty()) return false;
 
         User user = userOpt.get();
         if (user.getLastActivity() == null) return false;
 
-        // ИЗМЕНЕНИЕ: 1 минута вместо 2
+        // Активным считаем если активность была в последние 1 минуту
         LocalDateTime activeThreshold = LocalDateTime.now().minusMinutes(1);
         return user.getLastActivity().isAfter(activeThreshold);
     }
-
 
     @Scheduled(fixedRate = BROADCAST_INTERVAL_MS)
     public void broadcastUserStatusUpdates() {
@@ -208,19 +192,13 @@ public class UserService {
         }
     }
 
-
-
-
     public void save(User user) {
         userRepository.save(user);
     }
 
-    // Добавьте этот метод в UserService
     public User saveUser(User user) {
         return userRepository.save(user);
     }
-
-
 
     public class StatusFormatter {
 
@@ -292,20 +270,19 @@ public class UserService {
     // В методе prepareStatusUpdate(User user) ИЗМЕНЯЕМ логику:
     private Map<String, Object> prepareStatusUpdate(User user) {
         String username = user.getUsername();
-        boolean hasWebSocket = userSessions.containsKey(username);
+        boolean hasWebSocket = userSessions.containsKey(username); // ← ЕДИНСТВЕННЫЙ источник онлайн!
         boolean isActuallyActive = isUserActuallyActive(username);
 
         // Определяем статус и текст
         String status;
         String displayText;
-        boolean showAsOnline;
+        boolean showAsOnline = hasWebSocket; // ← ПРОСТО hasWebSocket!
 
         if (hasWebSocket) {
             if (isActuallyActive) {
                 // Активно в приложении (< 1 мин)
                 status = "active";
                 displayText = "online";
-                showAsOnline = true;
             } else {
                 // В фоне (> 1 мин)
                 LocalDateTime lastActivity = user.getLastActivity();
@@ -320,36 +297,31 @@ public class UserService {
                         // 1-5 минут: "X минут назад"
                         status = "inactive";
                         displayText = minutes + " мин назад";
-                        showAsOnline = false;
                     } else {
                         // >5 минут: "Был в HH:mm" (как при свайпе)
                         status = "offline";
                         displayText = StatusFormatter.formatLastSeenDetailed(referenceTime);
-                        showAsOnline = false;
                     }
                 } else {
                     status = "inactive";
                     displayText = "был недавно";
-                    showAsOnline = false;
                 }
             }
         } else {
-            // Нет WebSocket
+            // Нет WebSocket = точно оффлайн
             status = "offline";
             displayText = StatusFormatter.formatLastSeenDetailed(user.getLastSeen());
-            showAsOnline = false;
         }
 
         // Создаем Map
         Map<String, Object> statusUpdate = new HashMap<>();
         statusUpdate.put("type", "USER_STATUS_UPDATE");
         statusUpdate.put("username", username);
-        statusUpdate.put("online", showAsOnline);
-        statusUpdate.put("active", isActuallyActive);
+        statusUpdate.put("online", showAsOnline); // ← hasWebSocket!
+        statusUpdate.put("active", hasWebSocket && isActuallyActive);
         statusUpdate.put("status", status);
         statusUpdate.put("lastSeenText", displayText);
 
         return statusUpdate;
     }
-
 }

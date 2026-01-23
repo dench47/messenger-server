@@ -10,9 +10,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionConnectedEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,15 +44,15 @@ public class WebSocketEventListener {
         String sessionId = headerAccessor.getSessionId();
 
         if (username != null) {
+            // 1. Регистрируем подключение (само ставит онлайн)
             userService.userConnected(username, sessionId);
 
-            // 1. НЕМЕДЛЕННО отправляем статус онлайн
-            sendImmediateUserStatusUpdate(username, true);
+            // 2. НЕ отправляем immediate status - он отправится через broadcastOnlineUsers()
 
-            // 2. Отправляем обновленный список онлайн пользователей
+            // 3. Рассылаем обновленный список онлайн пользователей
             broadcastOnlineUsers();
 
-            System.out.println("✅ User CONNECTED and online: " + username);
+            System.out.println("✅ User CONNECTED: " + username);
         } else {
             System.out.println("⚠️  WebSocket connected but no authenticated user");
         }
@@ -78,29 +75,48 @@ public class WebSocketEventListener {
         String sessionId = headerAccessor.getSessionId();
 
         if (username != null) {
+            // 1. Регистрируем отключение (само поставит офлайн если нет других сессий)
             userService.userDisconnected(username, sessionId);
 
-            // 1. Отправляем обновленный список онлайн пользователей
+            // 2. Рассылаем обновленный список онлайн пользователей
             broadcastOnlineUsers();
 
-            // 2. Отправляем отдельное событие с данными об отключившемся пользователе
-            sendUserDisconnectedEvent(username);
-
-            System.out.println("🔴 User DISCONNECTED and offline: " + username);
+            System.out.println("🔴 User DISCONNECTED: " + username);
         } else {
             System.out.println("⚠️  WebSocket disconnected but no user info");
         }
     }
 
-    private void sendImmediateUserStatusUpdate(String username, boolean isOnline) {
+    private void broadcastOnlineUsers() {
         try {
-            boolean isActuallyActive = userService.isUserActuallyActive(username);
-            User user = userService.findByUsername(username).orElse(null);
-            boolean hasWebSocket = userService.isUserOnline(username);
+            List<String> onlineUsers = userService.getOnlineUsers();
 
-            // Используем централизованное форматирование
+            // Рассылаем всем обновленный список
+            messagingTemplate.convertAndSend("/topic/online.users", onlineUsers);
+
+            // Также отправляем отдельные статус-ивенты для каждого пользователя
+            for (String username : onlineUsers) {
+                sendUserStatusUpdate(username, true);
+            }
+
+            System.out.println("📢 Broadcasted online users: " + onlineUsers);
+        } catch (Exception e) {
+            System.err.println("❌ Error broadcasting online users: " + e.getMessage());
+        }
+    }
+
+    private void sendUserStatusUpdate(String username, boolean isConnected) {
+        try {
+            User user = userService.findByUsername(username).orElse(null);
+            if (user == null) return;
+
+            // Используем централизованное форматирование из UserService
+            boolean hasWebSocket = userService.isUserOnline(username);
+            boolean isActuallyActive = userService.isUserActuallyActive(username);
+
+            // Форматируем текст через UserService.StatusFormatter
             String displayText = UserService.StatusFormatter.formatStatusForDisplay(user, hasWebSocket);
-            boolean showAsOnline = hasWebSocket && isActuallyActive;
+            boolean showAsOnline = hasWebSocket;
 
             Map<String, Object> statusUpdate = new HashMap<>();
             statusUpdate.put("type", "USER_STATUS_UPDATE");
@@ -112,71 +128,10 @@ public class WebSocketEventListener {
 
             messagingTemplate.convertAndSend("/topic/user.events", statusUpdate);
 
-            System.out.println("⚡ IMMEDIATE STATUS: " + username +
-                    " -> online=" + showAsOnline +
-                    ", text=" + displayText);
+            System.out.println("⚡ Status update sent: " + username +
+                    " -> online=" + showAsOnline + ", text=" + displayText);
         } catch (Exception e) {
-            System.err.println("❌ Error sending immediate status: " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("❌ Error sending user status: " + e.getMessage());
         }
     }
-    private void sendUserDisconnectedEvent(String username) {
-        try {
-            User user = userService.findByUsername(username)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
-
-            // Используем централизованное форматирование
-            String displayText = UserService.StatusFormatter.formatLastSeenDetailed(user.getLastSeen());
-
-            Map<String, Object> disconnectEvent = new HashMap<>();
-            disconnectEvent.put("type", "USER_DISCONNECTED");
-            disconnectEvent.put("username", username);
-            disconnectEvent.put("online", false);
-            disconnectEvent.put("lastSeen", user.getLastSeen());
-            disconnectEvent.put("lastSeenText", displayText);
-
-            messagingTemplate.convertAndSend("/topic/user.events", disconnectEvent);
-            System.out.println("📢 Sent disconnect event: " + username + " - " + displayText);
-        } catch (Exception e) {
-            System.err.println("❌ Error sending disconnect event: " + e.getMessage());
-        }
-    }
-
-
-    private void broadcastOnlineUsers() {
-        try {
-            List<String> onlineUsers = userService.getOnlineUsers();
-            messagingTemplate.convertAndSend("/topic/online.users", onlineUsers);
-            System.out.println("📢 Broadcasted online users to ALL: " + onlineUsers);
-        } catch (Exception e) {
-            System.err.println("❌ Error broadcasting online users: " + e.getMessage());
-        }
-    }
-
-//    private String formatLastSeenForDisplay(LocalDateTime lastSeen) {
-//        if (lastSeen == null) return "никогда";
-//
-//        Duration duration = Duration.between(lastSeen, LocalDateTime.now());
-//        long minutes = duration.toMinutes();
-//
-//        if (minutes < 1) return "только что";
-//        if (minutes == 1) return "1 минуту назад";
-//        if (minutes < 5) return minutes + " минуты назад";
-//        if (minutes < 60) return minutes + " минут назад";
-//
-//        long hours = duration.toHours();
-//        if (hours == 1) return "1 час назад";
-//        if (hours < 5) return hours + " часа назад";
-//        if (hours < 24) return hours + " часов назад";
-//
-//        long days = duration.toDays();
-//        if (days == 1) return "вчера";
-//        if (days == 2) return "позавчера";
-//        if (days < 7) return days + " дня назад";
-//        if (days < 30) return days + " дней назад";
-//
-//        // Больше месяца - показываем дату
-//        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yy");
-//        return lastSeen.format(formatter);
-//    }
 }
