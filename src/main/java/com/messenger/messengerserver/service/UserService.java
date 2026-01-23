@@ -45,6 +45,7 @@ public class UserService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
         user.setOnline(true);
+
         userRepository.save(user);
         System.out.println("✅ User online: " + username);
     }
@@ -150,6 +151,7 @@ public class UserService {
             return;
         }
 
+
         user.setOnline(online);
         if (!online) {
             user.setLastSeen(LocalDateTime.now());
@@ -167,7 +169,7 @@ public class UserService {
         System.out.println("🔄 Activity updated for: " + username);
     }
 
-        public boolean isUserActuallyActive(String username) {
+    public boolean isUserActuallyActive(String username) {
         Optional<User> userOpt = findByUsername(username);
         if (userOpt.isEmpty()) return false;
 
@@ -351,5 +353,5 @@ public class UserService {
 
         return statusUpdate;
     }
-
 }
+

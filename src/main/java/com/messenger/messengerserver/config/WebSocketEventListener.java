@@ -47,6 +47,7 @@ public class WebSocketEventListener {
         String sessionId = headerAccessor.getSessionId();
 
         if (username != null) {
+
             userService.userConnected(username, sessionId);
 
             // 1. НЕМЕДЛЕННО отправляем статус онлайн
@@ -78,6 +79,7 @@ public class WebSocketEventListener {
         String sessionId = headerAccessor.getSessionId();
 
         if (username != null) {
+
             userService.userDisconnected(username, sessionId);
 
             // 1. Отправляем обновленный список онлайн пользователей
@@ -93,10 +95,32 @@ public class WebSocketEventListener {
     }
 
     private void sendImmediateUserStatusUpdate(String username, boolean isOnline) {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         try {
             boolean isActuallyActive = userService.isUserActuallyActive(username);
             User user = userService.findByUsername(username).orElse(null);
+
+
+
             boolean hasWebSocket = userService.isUserOnline(username);
+
 
             // Используем централизованное форматирование
             String displayText = UserService.StatusFormatter.formatStatusForDisplay(user, hasWebSocket);

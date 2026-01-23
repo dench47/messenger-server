@@ -31,6 +31,7 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
 
         if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
+
             List<String> authHeaders = accessor.getNativeHeader("Authorization");
 
             String username = null;
@@ -38,6 +39,7 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
 
             if (authHeaders != null && !authHeaders.isEmpty()) {
                 String authHeader = authHeaders.get(0);
+
 
                 if (authHeader.startsWith("Bearer ")) {
                     String jwt = authHeader.substring(7);
@@ -58,6 +60,8 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                         throw new MessagingException("Authentication failed");
                     }
                 }
+
+
             }
 
             // Устанавливаем аутентификацию только при валидном токене
@@ -82,6 +86,13 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                 throw new MessagingException("No valid authentication");
             }
         }
+
+
+
+
+
+
+
         return message;
     }
 }
