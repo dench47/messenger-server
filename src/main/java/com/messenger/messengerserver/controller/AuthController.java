@@ -13,7 +13,6 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
@@ -31,8 +30,9 @@ public class AuthController {
 
     @Autowired
     private UserService userService;
+
     @Autowired
-    private PasswordEncoder passwordEncoder; // Добавьте это поле
+    private PasswordEncoder passwordEncoder;
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody Map<String, String> request) {
@@ -106,8 +106,11 @@ public class AuthController {
             User user = userService.findByUsername(authRequest.getUsername())
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
-            // Обновляем last_seen и online статус
-            userService.setUserOnline(authRequest.getUsername());
+            // ТЕПЕРЬ ПРОЩЕ: при логине обновляем lastSeen и ставим online в базе
+            // Фактический online статус будет установлен при WebSocket подключении
+            user.setOnline(true);
+            user.setLastSeen(null); // Сбрасываем при логине
+            userService.save(user);
 
             AuthResponse authResponse = new AuthResponse(
                     accessToken,
@@ -163,19 +166,22 @@ public class AuthController {
     public ResponseEntity<?> logout(@RequestBody Map<String, String> request) {
         String username = request.get("username");
 
-        // ДОБАВИМ ОТЛАДКУ
         System.out.println("🔴🔴🔴 LOGOUT ENDPOINT CALLED!");
         System.out.println("🔴🔴🔴 Username: " + username);
-        System.out.println("🔴🔴🔴 Request: " + request);
-        System.out.println("🔴🔴🔴 Stack trace:");
+
         if (username != null) {
-            userService.setUserOffline(username);
+            // ПРОСТО ОБНОВЛЯЕМ ПОЛЬЗОВАТЕЛЯ В БАЗЕ
+            User user = userService.findByUsername(username)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
-            // Принудительно разрываем все WebSocket сессии пользователя
-            userService.forceDisconnectUser(username);
+            user.setOnline(false);
+            user.setLastSeen(java.time.LocalDateTime.now());
+            userService.save(user);
 
-            System.out.println("🔴 User logged out and disconnected: " + username);
+            // WebSocket сам разорвется при logout на клиенте
+            System.out.println("🔴 User logged out: " + username);
         }
+
         return ResponseEntity.ok("Logged out successfully");
     }
 
@@ -216,13 +222,12 @@ public class AuthController {
             User user = userService.findByUsername(username)
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
-            // ВАЖНО: Генерируем НОВЫЙ refresh token с таким же сроком
             String newAccessToken = jwtUtil.generateAccessToken(username);
-            String newRefreshToken = jwtUtil.generateRefreshToken(username); // ← НОВЫЙ refresh!
+            String newRefreshToken = jwtUtil.generateRefreshToken(username);
 
             AuthResponse authResponse = new AuthResponse(
                     newAccessToken,
-                    newRefreshToken, // Отправляем новый refresh token клиенту
+                    newRefreshToken,
                     jwtUtil.getAccessTokenExpiration(),
                     username,
                     user.getDisplayName() != null ? user.getDisplayName() : user.getUsername()

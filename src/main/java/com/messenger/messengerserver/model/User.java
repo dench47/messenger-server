@@ -31,15 +31,12 @@ public class User {
 
     private LocalDateTime createdAt;
 
-    private LocalDateTime lastActivity;
-
+    private LocalDateTime lastActivity; // оставляем для статистики
 
     // Конструкторы
-
-
     public User() {
         this.createdAt = LocalDateTime.now();
-        this.lastActivity = LocalDateTime.now();
+        // УБИРАЕМ автоустановку lastActivity
     }
 
     public User(String username, String password) {
@@ -49,15 +46,10 @@ public class User {
         this.displayName = username;
     }
 
-    public String getFcmToken() {
-        return fcmToken;
-    }
-
-    public void setFcmToken(String fcmToken) {
-        this.fcmToken = fcmToken;
-    }
-
     // Геттеры и сеттеры
+    public String getFcmToken() { return fcmToken; }
+    public void setFcmToken(String fcmToken) { this.fcmToken = fcmToken; }
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -77,7 +69,13 @@ public class User {
     public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
 
     public Boolean getOnline() { return online; }
-    public void setOnline(Boolean online) { this.online = online; }
+    public void setOnline(Boolean online) {
+        this.online = online;
+        // При установке офлайн сразу ставим last seen
+        if (online != null && !online) {
+            this.lastSeen = LocalDateTime.now();
+        }
+    }
 
     public LocalDateTime getLastSeen() { return lastSeen; }
     public void setLastSeen(LocalDateTime lastSeen) { this.lastSeen = lastSeen; }
@@ -85,10 +83,6 @@ public class User {
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 
-    @PreUpdate
-    public void preUpdate() {
-        if (this.online != null && !this.online) {
-            this.lastSeen = LocalDateTime.now();
-        }
-    }
+    // УДАЛЯЕМ @PreUpdate - логика проще:
+    // lastSeen устанавливается только когда пользователь отключается
 }

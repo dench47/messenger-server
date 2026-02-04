@@ -5,8 +5,10 @@ import com.messenger.messengerserver.model.User;
 import com.messenger.messengerserver.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -19,20 +21,15 @@ public class UserController {
     @Autowired
     private UserService userService;
 
-    // НОВЫЙ МЕТОД: общая логика преобразования User -> UserWithStatusDTO
+    // ПРОСТАЯ конвертация
     private UserWithStatusDTO convertUserToDTO(User user) {
-        boolean hasWebSocket = userService.isUserOnline(user.getUsername());
-        boolean isActuallyActive = userService.isUserActuallyActive(user.getUsername());
-
-        String status;
+        boolean isOnline = userService.isUserOnline(user.getUsername());
         String lastSeenText;
 
-        if (hasWebSocket) {
-            status = isActuallyActive ? "active" : "inactive";
-            lastSeenText = UserService.StatusFormatter.formatStatusForDisplay(user, hasWebSocket);
+        if (isOnline) {
+            lastSeenText = "online";
         } else {
-            status = "offline";
-            lastSeenText = UserService.StatusFormatter.formatLastSeenDetailed(user.getLastSeen());
+            lastSeenText = UserService.formatLastSeenDetailed(user.getLastSeen());
         }
 
         return new UserWithStatusDTO(
@@ -40,7 +37,7 @@ public class UserController {
                 user.getUsername(),
                 user.getDisplayName(),
                 user.getAvatarUrl(),
-                status,
+                isOnline ? "online" : "offline",
                 lastSeenText
         );
     }
@@ -83,47 +80,37 @@ public class UserController {
             User user = userService.findByUsername(username)
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
-            // Обновляем онлайн статус
-            boolean isOnline = userService.isUserOnline(username);
-            user.setOnline(isOnline);
-
             return ResponseEntity.ok(user);
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
         }
     }
 
+    // В UserController.java обновляем метод:
     @PostMapping("/update-online-status")
     public ResponseEntity<Void> updateOnlineStatus(@RequestBody Map<String, Object> request) {
         try {
             String username = (String) request.get("username");
             Boolean online = (Boolean) request.get("online");
 
+            System.out.println("📤 RECEIVED online status update:");
+            System.out.println("   - JWT user: " + SecurityContextHolder.getContext().getAuthentication().getName());
+            System.out.println("   - Request username: " + username);
+            System.out.println("   - Online: " + online);
+
             if (username == null || online == null) {
                 return ResponseEntity.badRequest().build();
             }
 
-            userService.updateUserOnlineStatus(username, online);
+            userService.updateUserInDatabase(username, online);
             return ResponseEntity.ok().build();
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
         }
     }
 
-    @PostMapping("/update-activity")
-    public ResponseEntity<Void> updateActivity(@RequestBody Map<String, String> request) {
-        try {
-            String username = request.get("username");
-            if (username == null) {
-                return ResponseEntity.badRequest().build();
-            }
-
-            userService.updateUserActivity(username);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
+    // УДАЛЯЕМ метод update-activity - он не нужен в новой логике
+    // УДАЛЯЕМ все проверки isUserActuallyActive
 
     @PostMapping("/update-fcm-token")
     public ResponseEntity<?> updateFcmToken(@RequestBody Map<String, String> request) {
@@ -139,7 +126,7 @@ public class UserController {
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
             user.setFcmToken(fcmToken);
-            userService.save(user); // Нужно добавить метод save в UserService
+            userService.save(user);
 
             System.out.println("✅ FCM token updated for user: " + username);
             return ResponseEntity.ok("FCM token updated");
@@ -149,6 +136,4 @@ public class UserController {
             return ResponseEntity.internalServerError().body("Error updating FCM token");
         }
     }
-
-
 }

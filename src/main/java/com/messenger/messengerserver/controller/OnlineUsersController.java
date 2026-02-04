@@ -54,14 +54,7 @@ public class OnlineUsersController {
         }
     }
 
-    // REST endpoint для получения всех пользователей с реальным онлайн статусом
-    @GetMapping("/with-status")
-    public ResponseEntity<List<com.messenger.messengerserver.model.User>> getUsersWithOnlineStatus() {
-        try {
-            List<com.messenger.messengerserver.model.User> users = userService.getUsersWithRealOnlineStatus();
-            return ResponseEntity.ok(users);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
+    // УДАЛЯЕМ этот метод - он больше не нужен
+    // @GetMapping("/with-status")
+    // public ResponseEntity<List<com.messenger.messengerserver.model.User>> getUsersWithOnlineStatus() {
 }
