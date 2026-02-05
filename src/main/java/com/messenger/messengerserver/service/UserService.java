@@ -4,7 +4,6 @@ import com.messenger.messengerserver.model.User;
 import com.messenger.messengerserver.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -21,8 +20,11 @@ public class UserService {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
-    private final Map<String, String> userSessions = new ConcurrentHashMap<>();
-    private static final int BROADCAST_INTERVAL_MS = 35000;
+    @Autowired
+    private UserPresenceService userPresenceService;
+
+    // Map для хранения sessionId по username (только для WebSocket соединений)
+    private final Map<String, String> userSessionMap = new ConcurrentHashMap<>();
 
     public Optional<User> findByUsername(String username) {
         return userRepository.findByUsername(username);
@@ -48,7 +50,11 @@ public class UserService {
     }
 
     public void userConnected(String username, String sessionId) {
-        userSessions.put(username, sessionId);
+        // Сохраняем сессию в Redis
+        userPresenceService.userConnected(username, sessionId);
+
+        // Сохраняем sessionId локально для быстрого доступа
+        userSessionMap.put(username, sessionId);
 
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -56,7 +62,8 @@ public class UserService {
         user.setLastSeen(null);
         userRepository.save(user);
 
-        System.out.println("👤 " + username + ": 🟢 CONNECTED");
+        System.out.println("👤 " + username + ": 🟢 CONNECTED (session: " +
+                sessionId.substring(0, Math.min(8, sessionId.length())) + ")");
 
         // МГНОВЕННЫЙ статус при подключении
         sendImmediateStatusUpdate(username, true);
@@ -64,39 +71,40 @@ public class UserService {
     }
 
     public void userDisconnected(String username, String sessionId) {
-        String currentSessionId = userSessions.get(username);
+        // Удаляем сессию из Redis
+        userPresenceService.userDisconnected(username, sessionId);
 
-        if (sessionId.equals(currentSessionId)) {
-            userSessions.remove(username);
+        // Удаляем из локальной мапы
+        userSessionMap.remove(username);
 
-            if (!userSessions.containsKey(username)) {
-                User user = userRepository.findByUsername(username)
-                        .orElseThrow(() -> new RuntimeException("User not found"));
-                user.setOnline(false);
-                user.setLastSeen(LocalDateTime.now());
-                userRepository.save(user);
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        user.setOnline(false);
+        user.setLastSeen(LocalDateTime.now());
+        userRepository.save(user);
 
-                System.out.println("👤 " + username + ": 🔴 DISCONNECTED (last seen: " +
-                        formatLastSeenDetailed(user.getLastSeen()) + ")");
+        System.out.println("👤 " + username + ": 🔴 DISCONNECTED (session: " +
+                sessionId.substring(0, Math.min(8, sessionId.length())) +
+                ", last seen: " + formatLastSeenDetailed(user.getLastSeen()) + ")");
 
-                // МГНОВЕННЫЙ статус при отключении
-                sendImmediateStatusUpdate(username, false);
-            }
-        }
-
-        System.out.println("🔴 User disconnected: " + username + " (Active sessions: " + userSessions.size() + ")");
+        // МГНОВЕННЫЙ статус при отключении
+        sendImmediateStatusUpdate(username, false);
+        System.out.println("🔴 User disconnected: " + username);
     }
 
     public boolean isUserOnline(String username) {
-        return userSessions.containsKey(username);
+        // Проверяем в Redis
+        return userPresenceService.isUserOnline(username);
     }
 
     public List<String> getOnlineUsers() {
-        return new ArrayList<>(userSessions.keySet());
+        // Получаем из Redis
+        return new ArrayList<>(userPresenceService.getOnlineUsers());
     }
 
     public int getOnlineUsersCount() {
-        return userSessions.size();
+        // Получаем из Redis
+        return userPresenceService.getOnlineUsersCount().intValue();
     }
 
     public static String formatLastSeenDetailed(LocalDateTime time) {
@@ -122,7 +130,8 @@ public class UserService {
 
     private Map<String, Object> prepareStatusData(User user) {
         String username = user.getUsername();
-        boolean hasWebSocket = userSessions.containsKey(username);
+        // Проверяем онлайн статус в Redis
+        boolean hasWebSocket = userPresenceService.isUserOnline(username);
 
         String status = hasWebSocket ? "online" : "offline";
         String lastSeenText = hasWebSocket ? "online" : formatLastSeenDetailed(user.getLastSeen());
@@ -156,26 +165,6 @@ public class UserService {
         }
     }
 
-    // Периодическая рассылка статусов всех пользователей
-//    @Scheduled(fixedRate = BROADCAST_INTERVAL_MS)
-//    public void broadcastAllUserStatuses() {
-//        try {
-//            List<User> allUsers = userRepository.findAll();
-//            if (allUsers.isEmpty()) return;
-//
-//            System.out.println("🔄 Broadcasting statuses for " + allUsers.size() + " users");
-//
-//            for (User user : allUsers) {
-//                Map<String, Object> statusUpdate = prepareStatusData(user);
-//                messagingTemplate.convertAndSend("/topic/user.events", statusUpdate);
-//            }
-//
-//            System.out.println("✅ Status broadcast completed");
-//        } catch (Exception e) {
-//            System.err.println("❌ Error in status broadcast: " + e.getMessage());
-//        }
-//    }
-
     public void save(User user) {
         userRepository.save(user);
     }
@@ -196,6 +185,35 @@ public class UserService {
         }
 
         userRepository.save(user);
-        System.out.println("💾 Database updated: " + username + " = " + (online ? "online" : "offline"));
+    }
+
+    /**
+     * Обновить TTL сессии пользователя (при активности)
+     * Теперь требует sessionId
+     */
+    public void refreshUserSession(String username, String sessionId) {
+        userPresenceService.refreshSession(username, sessionId);
+    }
+
+    /**
+     * Получить sessionId пользователя
+     */
+    public String getUserSessionId(String username) {
+        return userSessionMap.get(username);
+    }
+
+    /**
+     * Проверить, есть ли сессия пользователя
+     */
+    public boolean hasUserSession(String username, String sessionId) {
+        String storedSessionId = userSessionMap.get(username);
+        return storedSessionId != null && storedSessionId.equals(sessionId);
+    }
+
+    /**
+     * Получить количество устройств пользователя
+     */
+    public int getUserDeviceCount(String username) {
+        return userPresenceService.getUserDeviceCount(username);
     }
 }

@@ -5,7 +5,6 @@ import com.messenger.messengerserver.model.User;
 import com.messenger.messengerserver.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -21,18 +20,24 @@ public class UserController {
     @Autowired
     private UserService userService;
 
-    // ПРОСТАЯ конвертация
+    // УЛУЧШЕННАЯ конвертация с деталями
     private UserWithStatusDTO convertUserToDTO(User user) {
-        boolean isOnline = userService.isUserOnline(user.getUsername());
+        String username = user.getUsername();
+        boolean isOnline = userService.isUserOnline(username);
         String lastSeenText;
+        int deviceCount = userService.getUserDeviceCount(username);
 
         if (isOnline) {
-            lastSeenText = "online";
+            if (deviceCount > 1) {
+                lastSeenText = "online (" + deviceCount + " устройства)";
+            } else {
+                lastSeenText = "online";
+            }
         } else {
             lastSeenText = UserService.formatLastSeenDetailed(user.getLastSeen());
         }
 
-        return new UserWithStatusDTO(
+        UserWithStatusDTO dto = new UserWithStatusDTO(
                 user.getId(),
                 user.getUsername(),
                 user.getDisplayName(),
@@ -40,12 +45,29 @@ public class UserController {
                 isOnline ? "online" : "offline",
                 lastSeenText
         );
+
+        // Дополнительная информация для отладки
+        System.out.println("👤 " + username + ": " +
+                (isOnline ? "🟢" : "🔴") + " " +
+                dto.getStatus() + " - " + lastSeenText);
+
+        return dto;
     }
 
     @GetMapping
     public ResponseEntity<List<UserWithStatusDTO>> getUsers() {
         try {
             List<User> users = userService.getAllUsers();
+
+            // Статистика перед отправкой
+            int totalUsers = users.size();
+            long onlineCount = users.stream()
+                    .filter(user -> userService.isUserOnline(user.getUsername()))
+                    .count();
+
+            System.out.println("📊 User stats: " + totalUsers + " total, " +
+                    onlineCount + " online, " +
+                    (totalUsers - onlineCount) + " offline");
 
             List<UserWithStatusDTO> usersWithStatus = users.stream()
                     .map(this::convertUserToDTO)
@@ -62,6 +84,8 @@ public class UserController {
     public ResponseEntity<List<UserWithStatusDTO>> searchUsers(@RequestParam String query) {
         try {
             List<User> users = userService.searchUsers(query);
+
+            System.out.println("🔍 Search for '" + query + "': found " + users.size() + " users");
 
             List<UserWithStatusDTO> usersWithStatus = users.stream()
                     .map(this::convertUserToDTO)
@@ -86,17 +110,33 @@ public class UserController {
         }
     }
 
-    // В UserController.java обновляем метод:
+    @GetMapping("/online/count")
+    public ResponseEntity<Map<String, Object>> getOnlineCount() {
+        try {
+            int onlineCount = userService.getOnlineUsersCount();
+            int totalUsers = userService.getAllUsers().size();
+
+            Map<String, Object> response = Map.of(
+                    "onlineCount", onlineCount,
+                    "totalUsers", totalUsers,
+                    "timestamp", LocalDateTime.now().toString()
+            );
+
+            System.out.println("📊 Online count request: " + onlineCount + "/" + totalUsers);
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
     @PostMapping("/update-online-status")
     public ResponseEntity<Void> updateOnlineStatus(@RequestBody Map<String, Object> request) {
         try {
             String username = (String) request.get("username");
             Boolean online = (Boolean) request.get("online");
 
-            System.out.println("📤 RECEIVED online status update:");
-            System.out.println("   - JWT user: " + SecurityContextHolder.getContext().getAuthentication().getName());
-            System.out.println("   - Request username: " + username);
-            System.out.println("   - Online: " + online);
+
 
             if (username == null || online == null) {
                 return ResponseEntity.badRequest().build();
@@ -105,12 +145,10 @@ public class UserController {
             userService.updateUserInDatabase(username, online);
             return ResponseEntity.ok().build();
         } catch (Exception e) {
+            System.err.println("❌ Error updating online status: " + e.getMessage());
             return ResponseEntity.badRequest().build();
         }
     }
-
-    // УДАЛЯЕМ метод update-activity - он не нужен в новой логике
-    // УДАЛЯЕМ все проверки isUserActuallyActive
 
     @PostMapping("/update-fcm-token")
     public ResponseEntity<?> updateFcmToken(@RequestBody Map<String, String> request) {

@@ -42,7 +42,12 @@ public class WebSocketEventListener {
         if (username != null) {
             userService.userConnected(username, sessionId);
             broadcastOnlineUsers();
-            System.out.println("✅ User CONNECTED: " + username);
+
+            // Отправляем персональный список онлайн пользователей новому подключившемуся
+            sendPersonalOnlineUsers(username);
+
+            System.out.println("✅ User CONNECTED: " + username +
+                    " (session: " + sessionId.substring(0, Math.min(8, sessionId.length())) + ")");
         }
     }
 
@@ -65,7 +70,8 @@ public class WebSocketEventListener {
         if (username != null) {
             userService.userDisconnected(username, sessionId);
             broadcastOnlineUsers();
-            System.out.println("🔴 User DISCONNECTED: " + username);
+            System.out.println("🔴 User DISCONNECTED: " + username +
+                    " (session: " + sessionId.substring(0, Math.min(8, sessionId.length())) + ")");
         }
     }
 
@@ -73,9 +79,21 @@ public class WebSocketEventListener {
         try {
             List<String> onlineUsers = userService.getOnlineUsers();
             messagingTemplate.convertAndSend("/topic/online.users", onlineUsers);
-            System.out.println("📡 Online users list: " + onlineUsers);
+            System.out.println("📡 [BROADCAST] Online users: " + onlineUsers.size() + " users");
         } catch (Exception e) {
             System.err.println("❌ Error broadcasting online users: " + e.getMessage());
+        }
+    }
+
+    private void sendPersonalOnlineUsers(String username) {
+        try {
+            List<String> onlineUsers = userService.getOnlineUsers();
+            messagingTemplate.convertAndSendToUser(username, "/queue/online.users", onlineUsers);
+            System.out.println("📡 [PERSONAL] Sent online users to " + username +
+                    ": " + onlineUsers.size() + " users");
+        } catch (Exception e) {
+            System.err.println("❌ Error sending personal online users to " + username +
+                    ": " + e.getMessage());
         }
     }
 }
