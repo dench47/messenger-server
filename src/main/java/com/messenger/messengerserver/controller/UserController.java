@@ -34,6 +34,7 @@ public class UserController {
                 lastSeenText = "online";
             }
         } else {
+            // ВАЖНО: Используем getLastSeen() из user объекта, а не current time
             lastSeenText = UserService.formatLastSeenDetailed(user.getLastSeen());
         }
 
@@ -135,8 +136,6 @@ public class UserController {
         try {
             String username = (String) request.get("username");
             Boolean online = (Boolean) request.get("online");
-
-
 
             if (username == null || online == null) {
                 return ResponseEntity.badRequest().build();

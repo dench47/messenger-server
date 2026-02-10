@@ -71,25 +71,42 @@ public class UserService {
     }
 
     public void userDisconnected(String username, String sessionId) {
-        // Удаляем сессию из Redis
-        userPresenceService.userDisconnected(username, sessionId);
+        try {
+            // Небольшая задержка для клиента, чтобы он успел отправить UNSUBSCRIBE
+            Thread.sleep(50); // 50ms задержка
 
-        // Удаляем из локальной мапы
-        userSessionMap.remove(username);
+            // Удаляем сессию из Redis
+            userPresenceService.userDisconnected(username, sessionId);
 
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        user.setOnline(false);
-        user.setLastSeen(LocalDateTime.now());
-        userRepository.save(user);
+            // Удаляем из локальной мапы
+            userSessionMap.remove(username);
 
-        System.out.println("👤 " + username + ": 🔴 DISCONNECTED (session: " +
-                sessionId.substring(0, Math.min(8, sessionId.length())) +
-                ", last seen: " + formatLastSeenDetailed(user.getLastSeen()) + ")");
+            User user = userRepository.findByUsername(username)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+            user.setOnline(false);
+            user.setLastSeen(LocalDateTime.now());
+            userRepository.save(user);
 
-        // МГНОВЕННЫЙ статус при отключении
-        sendImmediateStatusUpdate(username, false);
-        System.out.println("🔴 User disconnected: " + username);
+            System.out.println("👤 " + username + ": 🔴 DISCONNECTED (session: " +
+                    sessionId.substring(0, Math.min(8, sessionId.length())) +
+                    ", last seen: " + formatLastSeenDetailed(user.getLastSeen()) + ")");
+
+            // МГНОВЕННЫЙ статус при отключении (с задержкой)
+            new Thread(() -> {
+                try {
+                    Thread.sleep(100); // Дополнительная задержка 100ms
+                    sendImmediateStatusUpdate(username, false);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }).start();
+
+            System.out.println("🔴 User disconnected: " + username);
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.err.println("❌ Error in userDisconnected: " + e.getMessage());
+        }
     }
 
     public boolean isUserOnline(String username) {
@@ -142,7 +159,7 @@ public class UserService {
         Map<String, Object> statusData = new HashMap<>();
         statusData.put("type", "USER_STATUS_UPDATE");
         statusData.put("username", username);
-        statusData.put("online", hasWebSocket);
+        statusData.put("online", hasWebSocket);  // Это должно быть false при отключении
         statusData.put("status", status);
         statusData.put("lastSeenText", lastSeenText);
 
@@ -159,7 +176,7 @@ public class UserService {
             messagingTemplate.convertAndSend("/topic/user.events", statusUpdate);
 
             System.out.println("⚡ IMMEDIATE STATUS: " + username + " -> " +
-                    (isOnline ? "🟢 online" : "🔴 " + statusUpdate.get("lastSeenText")));
+                    (statusUpdate.get("online").equals(true) ? "🟢 online" : "🔴 " + statusUpdate.get("lastSeenText")));
         } catch (Exception e) {
             System.err.println("❌ Error sending immediate status: " + e.getMessage());
         }
