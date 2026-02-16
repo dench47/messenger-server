@@ -6,7 +6,9 @@ import org.springframework.data.redis.core.SetOperations;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -223,5 +225,9 @@ public class UserPresenceService {
         }
 
         System.out.printf("🧹 [Redis] Cleared all sessions. Affected users: %d%n", onlineUsers.size());
+    }
+
+    public List<String> getAllOnlineUsers() {
+        return new ArrayList<>(getOnlineUsers());
     }
 }
