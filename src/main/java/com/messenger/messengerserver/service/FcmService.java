@@ -112,44 +112,7 @@ public class FcmService {
         }
     }
 
-    // НОВЫЙ МЕТОД ДЛЯ ИНДИВИДУАЛЬНОЙ ОТПРАВКИ
-    public void sendReconnectCommand(String username) {
-        try {
-            System.out.println("=== 🔵 [FCM RECONNECT] START ===");
-            System.out.println("  Target user: " + username);
 
-            User user = userService.findByUsername(username)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
-
-            String fcmToken = user.getFcmToken();
-            System.out.println("  🔍 FCM Token from DB: " +
-                    (fcmToken != null ? "'" + fcmToken.substring(0, Math.min(10, fcmToken.length())) + "...'" : "NULL"));
-
-            if (fcmToken == null || fcmToken.isEmpty()) {
-                System.out.println("⚠️ No FCM token for user: " + username);
-                return;
-            }
-
-            System.out.println("  🔍 Building reconnect FCM message...");
-
-            Message message = Message.builder()
-                    .setToken(fcmToken)
-                    .putData("type", "SERVER_RESTARTED")
-                    .putData("action", "DO_BACKGROUND")
-                    .putData("timestamp", String.valueOf(System.currentTimeMillis()))
-                    .build();
-
-            System.out.println("  🔍 Sending via FirebaseMessaging...");
-            String response = FirebaseMessaging.getInstance().send(message);
-            System.out.println("✅ FCM reconnect command sent: " + response);
-
-        } catch (Exception e) {
-            System.err.println("❌ Error sending FCM reconnect command: " + e.getMessage());
-            e.printStackTrace();
-        } finally {
-            System.out.println("=== 🔵 [FCM RECONNECT] END ===");
-        }
-    }
 
     // НОВЫЙ МЕТОД ДЛЯ BATCH ОТПРАВКИ (5000+)
     public void sendReconnectCommandBatch(List<String> usernames) {
