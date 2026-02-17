@@ -3,6 +3,8 @@ package com.messenger.messengerserver.model;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "users")
@@ -21,6 +23,10 @@ public class User {
 
     @Column(name = "fcm_token")
     private String fcmToken;
+
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore  // ← ДОБАВИТЬ ЭТО
+    private List<Contact> contacts = new ArrayList<>();
 
     private String displayName;
     private String avatarUrl;
@@ -49,6 +55,9 @@ public class User {
     // Геттеры и сеттеры
     public String getFcmToken() { return fcmToken; }
     public void setFcmToken(String fcmToken) { this.fcmToken = fcmToken; }
+
+    public List<Contact> getContacts() { return contacts; }
+    public void setContacts(List<Contact> contacts) { this.contacts = contacts; }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

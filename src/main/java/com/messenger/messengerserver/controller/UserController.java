@@ -1,7 +1,9 @@
 package com.messenger.messengerserver.controller;
 
+import com.messenger.messengerserver.dto.ContactDto;
 import com.messenger.messengerserver.dto.UserWithStatusDTO;
 import com.messenger.messengerserver.model.User;
+import com.messenger.messengerserver.service.UserPresenceService;
 import com.messenger.messengerserver.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +21,9 @@ public class UserController {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private UserPresenceService userPresenceService;
 
     // УЛУЧШЕННАЯ конвертация с деталями
     private UserWithStatusDTO convertUserToDTO(User user) {
@@ -171,6 +176,32 @@ public class UserController {
         } catch (Exception e) {
             System.err.println("❌ Error updating FCM token: " + e.getMessage());
             return ResponseEntity.internalServerError().body("Error updating FCM token");
+        }
+    }
+
+    @GetMapping("/contacts")
+    public ResponseEntity<List<ContactDto>> getUserContacts(@RequestParam String username) {
+        try {
+            System.out.println("📡 Contacts request for user: " + username);
+
+            List<User> contacts = userService.getUserContacts(username);
+
+            // Обновляем статусы из Redis для каждого контакта
+            for (User contact : contacts) {
+                boolean isOnline = userPresenceService.isUserOnline(contact.getUsername());
+                contact.setOnline(isOnline);
+            }
+
+            List<ContactDto> dtos = contacts.stream()
+                    .map(ContactDto::new)
+                    .collect(Collectors.toList());
+
+            System.out.println("✅ Returning " + dtos.size() + " contacts");
+            return ResponseEntity.ok(dtos);
+
+        } catch (Exception e) {
+            System.err.println("❌ Error: " + e.getMessage());
+            return ResponseEntity.badRequest().build();
         }
     }
 }

@@ -1,6 +1,8 @@
 package com.messenger.messengerserver.service;
 
+import com.messenger.messengerserver.model.Contact;
 import com.messenger.messengerserver.model.User;
+import com.messenger.messengerserver.repository.ContactRepository;
 import com.messenger.messengerserver.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -23,6 +25,9 @@ public class UserService {
 
     @Autowired
     private UserPresenceService userPresenceService;
+
+    @Autowired
+    private ContactRepository contactRepository;
 
     // Map для хранения sessionId по username (только для WebSocket соединений)
     private final Map<String, String> userSessionMap = new ConcurrentHashMap<>();
@@ -233,5 +238,34 @@ public class UserService {
      */
     public int getUserDeviceCount(String username) {
         return userPresenceService.getUserDeviceCount(username);
+    }
+
+    public List<User> getUserContacts(String username) {
+        User user = findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        return contactRepository.findContactsByUser(user);
+    }
+
+    public void addContact(String username, String contactUsername) {
+        User user = findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        User contact = findByUsername(contactUsername)
+                .orElseThrow(() -> new RuntimeException("Contact not found"));
+
+        if (contactRepository.existsByUserAndContact(user, contact)) {
+            throw new RuntimeException("Contact already exists");
+        }
+
+        Contact newContact = new Contact(user, contact);
+        contactRepository.save(newContact);
+    }
+
+    public void removeContact(String username, String contactUsername) {
+        User user = findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        User contact = findByUsername(contactUsername)
+                .orElseThrow(() -> new RuntimeException("Contact not found"));
+
+        contactRepository.deleteByUserAndContact(user, contact);
     }
 }
