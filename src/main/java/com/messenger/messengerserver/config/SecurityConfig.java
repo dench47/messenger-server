@@ -49,7 +49,6 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authz -> authz
                         .requestMatchers(
                                 new AntPathRequestMatcher("/api/auth/**"),
-                                new AntPathRequestMatcher("/h2-console/**"),
                                 new AntPathRequestMatcher("/api/test/**"),
                                 new AntPathRequestMatcher("/ws/**"),
                                 new AntPathRequestMatcher("/*.html"),        // ДОБАВЬТЕ
