@@ -32,11 +32,31 @@ public class ContactDto {
     }
 
     // Геттеры (обязательно!)
-    public Long getId() { return id; }
-    public String getUsername() { return username; }
-    public String getDisplayName() { return displayName; }
-    public String getAvatarUrl() { return avatarUrl; }
-    public boolean isOnline() { return online; }
-    public String getStatus() { return status; }
-    public String getLastSeenText() { return lastSeenText; }
+    public Long getId() {
+        return id;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public boolean isOnline() {
+        return online;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public String getLastSeenText() {
+        return lastSeenText;
+    }
 }

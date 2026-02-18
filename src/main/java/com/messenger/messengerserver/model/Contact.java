@@ -14,8 +14,6 @@ public class Contact {
 
     @ManyToOne
     @JoinColumn(name = "user_id", nullable = false)
-    @JsonIgnore  // ← ТОЖЕ ДОБАВИТЬ (если не нужно при возврате контактов)
-
     private User user;
 
     @ManyToOne

@@ -25,7 +25,6 @@ public class User {
     private String fcmToken;
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
-    @JsonIgnore  // ← ДОБАВИТЬ ЭТО
     private List<Contact> contacts = new ArrayList<>();
 
     private String displayName;
@@ -42,7 +41,6 @@ public class User {
     // Конструкторы
     public User() {
         this.createdAt = LocalDateTime.now();
-        // УБИРАЕМ автоустановку lastActivity
     }
 
     public User(String username, String password) {

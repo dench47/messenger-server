@@ -185,13 +185,6 @@ public class UserController {
             System.out.println("📡 Contacts request for user: " + username);
 
             List<User> contacts = userService.getUserContacts(username);
-
-            // Обновляем статусы из Redis для каждого контакта
-            for (User contact : contacts) {
-                boolean isOnline = userPresenceService.isUserOnline(contact.getUsername());
-                contact.setOnline(isOnline);
-            }
-
             List<ContactDto> dtos = contacts.stream()
                     .map(ContactDto::new)
                     .collect(Collectors.toList());
