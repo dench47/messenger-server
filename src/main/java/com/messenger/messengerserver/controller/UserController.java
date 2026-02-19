@@ -197,4 +197,11 @@ public class UserController {
             return ResponseEntity.badRequest().build();
         }
     }
+
+    @GetMapping("/{username}/status")
+    public ResponseEntity<ContactDto> getUserStatus(@PathVariable String username) {
+        User user = userService.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        return ResponseEntity.ok(new ContactDto(user));
+    }
 }
