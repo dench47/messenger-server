@@ -54,7 +54,8 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/*.html"),        // ДОБАВЬТЕ
                                 new AntPathRequestMatcher("/static/**"),     // ДОБАВЬТЕ
                                 new AntPathRequestMatcher("/resources/**"),   // ДОБАВЬТЕ
-                                new AntPathRequestMatcher("/api/users/remove-fcm-token")
+                                new AntPathRequestMatcher("/api/users/remove-fcm-token"),
+                                new AntPathRequestMatcher("/uploads/**")
 
                         ).permitAll()
                         .anyRequest().authenticated()

@@ -2,13 +2,19 @@ package com.messenger.messengerserver.controller;
 
 import com.messenger.messengerserver.dto.ContactDto;
 import com.messenger.messengerserver.dto.UserWithStatusDTO;
+import com.messenger.messengerserver.dto.UserDto;
 import com.messenger.messengerserver.model.User;
+import com.messenger.messengerserver.service.FileService;
 import com.messenger.messengerserver.service.UserPresenceService;
 import com.messenger.messengerserver.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -23,7 +29,11 @@ public class UserController {
     private UserService userService;
 
     @Autowired
+    private FileService fileService;
+
+    @Autowired
     private UserPresenceService userPresenceService;
+
 
     // УЛУЧШЕННАЯ конвертация с деталями
     private UserWithStatusDTO convertUserToDTO(User user) {
@@ -105,14 +115,17 @@ public class UserController {
     }
 
     @GetMapping("/{username}")
-    public ResponseEntity<User> getUser(@PathVariable String username) {
+    public ResponseEntity<UserDto> getUser(@PathVariable String username) {
         try {
             User user = userService.findByUsername(username)
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
-            return ResponseEntity.ok(user);
+            boolean isOnline = userPresenceService.isUserOnline(username);
+            user.setOnline(isOnline);
+
+            return ResponseEntity.ok(new UserDto(user));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.notFound().build();
         }
     }
 
@@ -203,5 +216,13 @@ public class UserController {
         User user = userService.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
         return ResponseEntity.ok(new ContactDto(user));
+    }
+
+    @PostMapping("/avatar")
+    public ResponseEntity<?> uploadAvatar(@RequestParam("avatar") MultipartFile file,
+                                          @AuthenticationPrincipal UserDetails userDetails) throws IOException {
+        String url = fileService.saveAvatar(file, userDetails.getUsername());
+        userService.updateAvatarUrl(userDetails.getUsername(), url);
+        return ResponseEntity.ok(Map.of("url", url));
     }
 }

@@ -268,4 +268,11 @@ public class UserService {
 
         contactRepository.deleteByUserAndContact(user, contact);
     }
+
+    public void updateAvatarUrl(String username, String avatarUrl) {
+        User user = findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        user.setAvatarUrl(avatarUrl);
+        userRepository.save(user);
+    }
 }

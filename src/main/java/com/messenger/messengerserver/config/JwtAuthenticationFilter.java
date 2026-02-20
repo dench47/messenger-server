@@ -34,10 +34,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         // Пропускаем JWT проверку для этих endpoints
         if (path.startsWith("/api/auth/") ||
-                path.startsWith("/h2-console/") ||
                 path.startsWith("/api/test/") ||
                 path.startsWith("/ws/") ||
                 path.startsWith("/websocket-test.html") ||
+                path.startsWith("/uploads/") ||  // ← добавить
                 path.endsWith(".html") ||
                 path.endsWith(".js") ||
                 path.endsWith(".css")) {
