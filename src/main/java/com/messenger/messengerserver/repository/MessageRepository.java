@@ -29,4 +29,12 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 
     @Query("SELECT m FROM Message m WHERE m.receiver.username = :username AND m.isRead = false")
     List<Message> findUnreadMessagesByUsername(@Param("username") String username);
+
+    // 👇 НОВЫЙ МЕТОД - получает последнее сообщение между двумя пользователями
+    @Query("SELECT m FROM Message m WHERE " +
+            "(m.sender.username = :username1 AND m.receiver.username = :username2) OR " +
+            "(m.sender.username = :username2 AND m.receiver.username = :username1) " +
+            "ORDER BY m.timestamp DESC LIMIT 1")
+    Message findLastMessageBetweenUsers(@Param("username1") String username1,
+                                        @Param("username2") String username2);
 }

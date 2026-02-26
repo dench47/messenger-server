@@ -45,4 +45,9 @@ public class MessageService {
     public long getUnreadCount(String username) {
         return messageRepository.findUnreadMessagesByUsername(username).size();
     }
+
+    // 👇 НОВЫЙ МЕТОД
+    public Message getLastMessage(String user1, String user2) {
+        return messageRepository.findLastMessageBetweenUsers(user1, user2);
+    }
 }

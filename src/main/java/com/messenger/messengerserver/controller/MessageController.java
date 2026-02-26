@@ -41,9 +41,6 @@ public class MessageController {
                     " to: " + messageDto.getReceiverUsername() +
                     " type: " + messageDto.getType());
 
-            // ВАЖНО: Убрали обработку CALL_SIGNAL здесь!
-            // Все call сигналы теперь идут через отдельный endpoint /call
-
             Message message = messageService.saveMessage(
                     messageDto.getContent(),
                     messageDto.getSenderUsername(),
@@ -186,6 +183,24 @@ public class MessageController {
                     .collect(Collectors.toList());
 
             return ResponseEntity.ok(messageDtos);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    // 👇 НОВЫЙ ENDPOINT
+    @GetMapping("/last/{user1}/{user2}")
+    public ResponseEntity<MessageDto> getLastMessage(
+            @PathVariable String user1,
+            @PathVariable String user2) {
+
+        try {
+            Message message = messageService.getLastMessage(user1, user2);
+            if (message != null) {
+                return ResponseEntity.ok(convertToDto(message));
+            } else {
+                return ResponseEntity.notFound().build();
+            }
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
         }
