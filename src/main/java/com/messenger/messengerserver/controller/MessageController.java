@@ -2,6 +2,7 @@ package com.messenger.messengerserver.controller;
 
 import com.messenger.messengerserver.dto.MessageDto;
 import com.messenger.messengerserver.model.Message;
+import com.messenger.messengerserver.model.MessageStatus;
 import com.messenger.messengerserver.service.FcmService;
 import com.messenger.messengerserver.service.MessageService;
 import com.messenger.messengerserver.service.UserService;
@@ -47,7 +48,13 @@ public class MessageController {
                     messageDto.getReceiverUsername()
             );
 
-            MessageDto responseDto = convertToDto(message);
+            // Устанавливаем статус SENT
+            message.setStatus(MessageStatus.SENT);
+            message = messageService.updateMessage(message);
+
+            // 👇 ИСПРАВЛЕНИЕ: загружаем сообщение с пользователями через новый метод
+            Message fullMessage = messageService.getMessageWithUsers(message.getId());
+            MessageDto responseDto = convertToDto(fullMessage);
 
             // Отправляем FCM уведомление для обычных сообщений
             try {
@@ -148,6 +155,10 @@ public class MessageController {
                     messageDto.getReceiverUsername()
             );
 
+            // 👇 Устанавливаем статус SENT
+            message.setStatus(MessageStatus.SENT);
+            message = messageService.updateMessage(message);
+
             MessageDto responseDto = convertToDto(message);
 
             System.out.println("🔵 [FCM CHECK] Before calling fcmService.sendNewMessageNotification");
@@ -188,7 +199,6 @@ public class MessageController {
         }
     }
 
-    // 👇 НОВЫЙ ENDPOINT
     @GetMapping("/last/{user1}/{user2}")
     public ResponseEntity<MessageDto> getLastMessage(
             @PathVariable String user1,
@@ -249,6 +259,8 @@ public class MessageController {
         dto.setSenderUsername(message.getSender().getUsername());
         dto.setReceiverUsername(message.getReceiver().getUsername());
         dto.setType(message.getType().toString());
+        // 👇 Добавляем статус
+        dto.setStatus(message.getStatus() != null ? message.getStatus().toString() : "SENT");
         return dto;
     }
 }

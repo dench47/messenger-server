@@ -10,12 +10,14 @@ public class MessageDto {
     private String senderUsername;
     private String receiverUsername;
     private String type;
+    // 👇 НОВОЕ ПОЛЕ
+    private String status; // "SENT", "DELIVERED", "READ"
 
     // Конструкторы
     public MessageDto() {}
 
     public MessageDto(Long id, String content, LocalDateTime timestamp, Boolean isRead,
-                      String senderUsername, String receiverUsername, String type) {
+                      String senderUsername, String receiverUsername, String type, String status) {
         this.id = id;
         this.content = content;
         this.timestamp = timestamp;
@@ -23,6 +25,7 @@ public class MessageDto {
         this.senderUsername = senderUsername;
         this.receiverUsername = receiverUsername;
         this.type = type;
+        this.status = status;
     }
 
     // Getters and Setters
@@ -46,4 +49,8 @@ public class MessageDto {
 
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }
+
+    // 👇 NEW getter/setter
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
 }

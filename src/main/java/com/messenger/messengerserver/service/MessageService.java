@@ -5,6 +5,7 @@ import com.messenger.messengerserver.model.User;
 import com.messenger.messengerserver.repository.MessageRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -17,6 +18,7 @@ public class MessageService {
     @Autowired
     private UserService userService;
 
+    @Transactional
     public Message saveMessage(String content, String senderUsername, String receiverUsername) {
         User sender = userService.findByUsername(senderUsername)
                 .orElseThrow(() -> new RuntimeException("Sender not found"));
@@ -31,6 +33,7 @@ public class MessageService {
         return messageRepository.findConversationByUsernames(user1, user2);
     }
 
+    @Transactional
     public void markAsRead(Long messageId) {
         Message message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new RuntimeException("Message not found"));
@@ -46,8 +49,18 @@ public class MessageService {
         return messageRepository.findUnreadMessagesByUsername(username).size();
     }
 
-    // 👇 НОВЫЙ МЕТОД
     public Message getLastMessage(String user1, String user2) {
         return messageRepository.findLastMessageBetweenUsers(user1, user2);
+    }
+
+    public Message updateMessage(Message message) {
+        return messageRepository.save(message);
+    }
+
+    // 👇 НОВЫЙ МЕТОД - загружает сообщение с пользователями (для WebSocket)
+    @Transactional(readOnly = true)
+    public Message getMessageWithUsers(Long messageId) {
+        return messageRepository.findByIdWithUsers(messageId)
+                .orElseThrow(() -> new RuntimeException("Message not found with id: " + messageId));
     }
 }

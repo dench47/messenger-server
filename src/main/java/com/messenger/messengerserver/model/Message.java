@@ -22,6 +22,10 @@ public class Message {
     @Enumerated(EnumType.STRING)
     private MessageType type = MessageType.TEXT;
 
+    // 👇 НОВОЕ ПОЛЕ - статус сообщения
+    @Enumerated(EnumType.STRING)
+    private MessageStatus status = MessageStatus.SENT;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "sender_id")
     private User sender;
@@ -100,10 +104,20 @@ public class Message {
         this.receiver = receiver;
     }
 
+    // 👇 NEW getter/setter для status
+    public MessageStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(MessageStatus status) {
+        this.status = status;
+    }
+
     @Override
     public String toString() {
         return "Message{id=" + id + ", content='" + content + "', from=" +
                 (sender != null ? sender.getUsername() : "null") +
-                ", to=" + (receiver != null ? receiver.getUsername() : "null") + "}";
+                ", to=" + (receiver != null ? receiver.getUsername() : "null") +
+                ", status=" + status + "}";
     }
 }
