@@ -1,6 +1,7 @@
 package com.messenger.messengerserver.controller;
 
 import com.messenger.messengerserver.dto.MessageDto;
+import com.messenger.messengerserver.dto.MessageStatusUpdateDto;
 import com.messenger.messengerserver.model.Message;
 import com.messenger.messengerserver.model.MessageStatus;
 import com.messenger.messengerserver.service.FcmService;
@@ -247,6 +248,54 @@ public class MessageController {
             return ResponseEntity.ok(count);
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
+        }
+    }
+
+    // 👇 НОВЫЙ WebSocket endpoint для подтверждения статусов (DELIVERED/READ)
+    @MessageMapping("/status")
+    public void updateMessageStatus(@Payload MessageStatusUpdateDto statusUpdate) {
+        try {
+            System.out.println("📊 Status update received: messageId=" + statusUpdate.getMessageId() +
+                    " status=" + statusUpdate.getStatus() +
+                    " from=" + statusUpdate.getUsername());
+
+            // Находим сообщение с пользователями
+            Message message = messageService.getMessageWithUsers(statusUpdate.getMessageId());
+
+            // Проверяем, что подтверждение приходит от ПОЛУЧАТЕЛЯ
+            if (!message.getReceiver().getUsername().equals(statusUpdate.getUsername())) {
+                System.err.println("❌ Unauthorized status update: " + statusUpdate.getUsername() +
+                        " is not receiver of message " + statusUpdate.getMessageId());
+                return;
+            }
+
+            // Обновляем статус
+            MessageStatus newStatus = MessageStatus.valueOf(statusUpdate.getStatus());
+
+            // Логика: нельзя понижать статус (SENT → DELIVERED → READ)
+            if (newStatus.ordinal() > message.getStatus().ordinal()) {
+                message.setStatus(newStatus);
+                message = messageService.updateMessage(message);
+
+                // Отправляем уведомление ОТПРАВИТЕЛЮ
+                MessageDto responseDto = convertToDto(message);
+
+                messagingTemplate.convertAndSendToUser(
+                        message.getSender().getUsername(),
+                        "/queue/status",
+                        responseDto
+                );
+
+                System.out.println("✅ Status updated for message " + statusUpdate.getMessageId() +
+                        " to " + newStatus);
+            } else {
+                System.out.println("⚠️ Ignoring status downgrade: current=" + message.getStatus() +
+                        ", requested=" + newStatus);
+            }
+
+        } catch (Exception e) {
+            System.err.println("❌ Error updating message status: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
