@@ -1,6 +1,9 @@
 package com.messenger.messengerserver.service;
 
+import com.messenger.messengerserver.dto.MessageDto;
+import com.messenger.messengerserver.dto.MessageStatusUpdateDto;
 import com.messenger.messengerserver.model.Message;
+import com.messenger.messengerserver.model.MessageStatus;
 import com.messenger.messengerserver.model.User;
 import com.messenger.messengerserver.repository.MessageRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,5 +65,37 @@ public class MessageService {
     public Message getMessageWithUsers(Long messageId) {
         return messageRepository.findByIdWithUsers(messageId)
                 .orElseThrow(() -> new RuntimeException("Message not found with id: " + messageId));
+    }
+
+    @Transactional
+    public MessageDto processStatusUpdate(MessageStatusUpdateDto statusUpdate) {
+        Message message = getMessageWithUsers(statusUpdate.getMessageId());
+
+        // Проверяем, что подтверждение приходит от ПОЛУЧАТЕЛЯ
+        if (!message.getReceiver().getUsername().equals(statusUpdate.getUsername())) {
+            throw new RuntimeException("Unauthorized status update: " + statusUpdate.getUsername() +
+                    " is not receiver of message " + statusUpdate.getMessageId());
+        }
+
+        MessageStatus newStatus = MessageStatus.valueOf(statusUpdate.getStatus());
+
+        if (newStatus.ordinal() > message.getStatus().ordinal()) {
+            message.setStatus(newStatus);
+            message = updateMessage(message);
+
+            // Создаем DTO (все данные уже загружены в транзакции)
+            MessageDto dto = new MessageDto();
+            dto.setId(message.getId());
+            dto.setContent(message.getContent());
+            dto.setTimestamp(message.getTimestamp());
+            dto.setIsRead(message.getIsRead());
+            dto.setSenderUsername(message.getSender().getUsername());  // Работает!
+            dto.setReceiverUsername(message.getReceiver().getUsername()); // Работает!
+            dto.setType(message.getType().toString());
+            dto.setStatus(message.getStatus().toString());
+
+            return dto;
+        }
+        return null;
     }
 }

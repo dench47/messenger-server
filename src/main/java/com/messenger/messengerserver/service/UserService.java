@@ -29,6 +29,9 @@ public class UserService {
     @Autowired
     private ContactRepository contactRepository;
 
+    @Autowired
+    private UserActivityService userActivityService;
+
     // Map для хранения sessionId по username (только для WebSocket соединений)
     private final Map<String, String> userSessionMap = new ConcurrentHashMap<>();
 
@@ -274,5 +277,9 @@ public class UserService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
         user.setAvatarUrl(avatarUrl);
         userRepository.save(user);
+    }
+
+    public boolean isUserInChatWith(String username, String chatPartner) {
+        return userActivityService.isUserInChatWith(username, chatPartner);
     }
 }

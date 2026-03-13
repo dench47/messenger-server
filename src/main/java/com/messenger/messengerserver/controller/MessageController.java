@@ -14,6 +14,8 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -22,6 +24,9 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/messages")
 @CrossOrigin(origins = "*")
 public class MessageController {
+
+    private static final DateTimeFormatter TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
 
     @Autowired
     private MessageService messageService;
@@ -35,11 +40,15 @@ public class MessageController {
     @Autowired
     private FcmService fcmService;
 
+    private String getTimestamp() {
+        return LocalDateTime.now().format(TIME_FORMATTER);
+    }
+
     // WebSocket endpoint для отправки сообщений в реальном времени
     @MessageMapping("/chat")
     public void processMessage(@Payload MessageDto messageDto) {
         try {
-            System.out.println("WebSocket message received from: " + messageDto.getSenderUsername() +
+            System.out.println("[" + getTimestamp() + "] WebSocket message received from: " + messageDto.getSenderUsername() +
                     " to: " + messageDto.getReceiverUsername() +
                     " type: " + messageDto.getType());
 
@@ -51,13 +60,28 @@ public class MessageController {
 
             // Устанавливаем статус SENT
             message.setStatus(MessageStatus.SENT);
+
+            // 👇 ПРОВЕРЯЕМ ОНЛАЙН ПОЛУЧАТЕЛЯ
+            if (userService.isUserOnline(messageDto.getReceiverUsername())) {
+                // Если онлайн - DELIVERED
+                message.setStatus(MessageStatus.DELIVERED);
+
+                // 👇 ПРОВЕРЯЕМ, В ЧАТЕ ЛИ ПОЛУЧАТЕЛЬ С ОТПРАВИТЕЛЕМ
+                if (userService.isUserInChatWith(messageDto.getReceiverUsername(), messageDto.getSenderUsername())) {
+                    // Если в чате - сразу READ!
+                    message.setStatus(MessageStatus.READ);
+                    System.out.println("[" + getTimestamp() + "] ✅ Receiver is in chat, setting READ immediately");
+                } else {
+                    System.out.println("[" + getTimestamp() + "] ✅ Receiver is online, setting DELIVERED immediately");
+                }
+            }
+
             message = messageService.updateMessage(message);
 
-            // 👇 ИСПРАВЛЕНИЕ: загружаем сообщение с пользователями через новый метод
             Message fullMessage = messageService.getMessageWithUsers(message.getId());
             MessageDto responseDto = convertToDto(fullMessage);
 
-            // Отправляем FCM уведомление для обычных сообщений
+            // Отправляем FCM уведомление
             try {
                 fcmService.sendNewMessageNotification(
                         messageDto.getSenderUsername(),
@@ -65,9 +89,9 @@ public class MessageController {
                         messageDto.getContent(),
                         message.getId()
                 );
-                System.out.println("✅ [FCM WS] FCM sent successfully via WebSocket");
+                System.out.println("[" + getTimestamp() + "] ✅ [FCM WS] FCM sent successfully via WebSocket");
             } catch (Exception fcmEx) {
-                System.err.println("❌ [FCM WS] Error sending FCM: " + fcmEx.getMessage());
+                System.err.println("[" + getTimestamp() + "] ❌ [FCM WS] Error sending FCM: " + fcmEx.getMessage());
                 fcmEx.printStackTrace();
             }
 
@@ -85,13 +109,12 @@ public class MessageController {
                     responseDto
             );
 
-            System.out.println("Message sent via WebSocket to both users");
+            System.out.println("[" + getTimestamp() + "] Message sent via WebSocket to both users with status: " + message.getStatus());
 
         } catch (Exception e) {
-            System.out.println("Error sending message via WebSocket: " + e.getMessage());
+            System.out.println("[" + getTimestamp() + "] Error sending message via WebSocket: " + e.getMessage());
             e.printStackTrace();
 
-            // Отправляем ошибку только отправителю
             MessageDto errorDto = new MessageDto();
             errorDto.setContent("Error sending message: " + e.getMessage());
             errorDto.setSenderUsername("system");
@@ -110,14 +133,14 @@ public class MessageController {
     @MessageMapping("/call")
     public void processCallSignal(@Payload Map<String, Object> callSignal) {
         try {
-            System.out.println("📞 Call signal received: " + callSignal);
+            System.out.println("[" + getTimestamp() + "] 📞 Call signal received: " + callSignal);
 
             String type = (String) callSignal.get("type");
             String from = (String) callSignal.get("from");
             String to = (String) callSignal.get("to");
 
             if (type == null || from == null || to == null) {
-                System.err.println("❌ Invalid call signal format");
+                System.err.println("[" + getTimestamp() + "] ❌ Invalid call signal format");
                 return;
             }
 
@@ -128,20 +151,20 @@ public class MessageController {
                     callSignal
             );
 
-            System.out.println("📞 Call signal forwarded to: " + to);
+            System.out.println("[" + getTimestamp() + "] 📞 Call signal forwarded to: " + to);
 
             // Отправляем FCM уведомление для входящих звонков
             if ("offer".equals(type)) {
                 try {
                     fcmService.sendIncomingCallNotification(from, to);
-                    System.out.println("📞 FCM call notification sent to: " + to);
+                    System.out.println("[" + getTimestamp() + "] 📞 FCM call notification sent to: " + to);
                 } catch (Exception fcmEx) {
-                    System.err.println("❌ Error sending call FCM: " + fcmEx.getMessage());
+                    System.err.println("[" + getTimestamp() + "] ❌ Error sending call FCM: " + fcmEx.getMessage());
                 }
             }
 
         } catch (Exception e) {
-            System.err.println("❌ Error processing call signal: " + e.getMessage());
+            System.err.println("[" + getTimestamp() + "] ❌ Error processing call signal: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -162,7 +185,7 @@ public class MessageController {
 
             MessageDto responseDto = convertToDto(message);
 
-            System.out.println("🔵 [FCM CHECK] Before calling fcmService.sendNewMessageNotification");
+            System.out.println("[" + getTimestamp() + "] 🔵 [FCM CHECK] Before calling fcmService.sendNewMessageNotification");
             System.out.println("   Sender: " + messageDto.getSenderUsername());
             System.out.println("   Receiver: " + messageDto.getReceiverUsername());
 
@@ -173,12 +196,12 @@ public class MessageController {
                     message.getId()
             );
 
-            System.out.println("✅ [FCM CHECK] After fcmService call");
+            System.out.println("[" + getTimestamp() + "] ✅ [FCM CHECK] After fcmService call");
 
             return ResponseEntity.ok(responseDto);
 
         } catch (Exception e) {
-            System.err.println("❌ Error sending message: " + e.getMessage());
+            System.err.println("[" + getTimestamp() + "] ❌ Error sending message: " + e.getMessage());
             return ResponseEntity.badRequest().build();
         }
     }
@@ -255,46 +278,29 @@ public class MessageController {
     @MessageMapping("/status")
     public void updateMessageStatus(@Payload MessageStatusUpdateDto statusUpdate) {
         try {
-            System.out.println("📊 Status update received: messageId=" + statusUpdate.getMessageId() +
+            System.out.println("[" + getTimestamp() + "] 📊 Status update received: messageId=" + statusUpdate.getMessageId() +
                     " status=" + statusUpdate.getStatus() +
                     " from=" + statusUpdate.getUsername());
 
-            // Находим сообщение с пользователями
-            Message message = messageService.getMessageWithUsers(statusUpdate.getMessageId());
+            // 👇 ВСЯ ЛОГИКА В ТРАНЗАКЦИОННОМ МЕТОДЕ СЕРВИСА
+            MessageDto responseDto = messageService.processStatusUpdate(statusUpdate);
 
-            // Проверяем, что подтверждение приходит от ПОЛУЧАТЕЛЯ
-            if (!message.getReceiver().getUsername().equals(statusUpdate.getUsername())) {
-                System.err.println("❌ Unauthorized status update: " + statusUpdate.getUsername() +
-                        " is not receiver of message " + statusUpdate.getMessageId());
-                return;
-            }
-
-            // Обновляем статус
-            MessageStatus newStatus = MessageStatus.valueOf(statusUpdate.getStatus());
-
-            // Логика: нельзя понижать статус (SENT → DELIVERED → READ)
-            if (newStatus.ordinal() > message.getStatus().ordinal()) {
-                message.setStatus(newStatus);
-                message = messageService.updateMessage(message);
-
-                // Отправляем уведомление ОТПРАВИТЕЛЮ
-                MessageDto responseDto = convertToDto(message);
-
+            if (responseDto != null) {
+                System.out.println("[" + getTimestamp() + "] 📤 Sending status to " + responseDto.getSenderUsername() +
+                        " on /queue/status: " + responseDto.getStatus());
                 messagingTemplate.convertAndSendToUser(
-                        message.getSender().getUsername(),
+                        responseDto.getSenderUsername(),
                         "/queue/status",
                         responseDto
                 );
-
-                System.out.println("✅ Status updated for message " + statusUpdate.getMessageId() +
-                        " to " + newStatus);
+                System.out.println("[" + getTimestamp() + "] ✅ Status updated for message " + statusUpdate.getMessageId() +
+                        " to " + responseDto.getStatus());
             } else {
-                System.out.println("⚠️ Ignoring status downgrade: current=" + message.getStatus() +
-                        ", requested=" + newStatus);
+                System.out.println("[" + getTimestamp() + "] ⚠️ No status change for message " + statusUpdate.getMessageId());
             }
 
         } catch (Exception e) {
-            System.err.println("❌ Error updating message status: " + e.getMessage());
+            System.err.println("[" + getTimestamp() + "] ❌ Error updating message status: " + e.getMessage());
             e.printStackTrace();
         }
     }
