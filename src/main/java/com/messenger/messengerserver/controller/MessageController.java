@@ -1,7 +1,9 @@
 package com.messenger.messengerserver.controller;
 
 import com.messenger.messengerserver.dto.MessageDto;
+import com.messenger.messengerserver.dto.MessageStatusBatchUpdateDto;
 import com.messenger.messengerserver.dto.MessageStatusUpdateDto;
+import com.messenger.messengerserver.mapper.MessageMapper;
 import com.messenger.messengerserver.model.Message;
 import com.messenger.messengerserver.model.MessageStatus;
 import com.messenger.messengerserver.service.FcmService;
@@ -40,11 +42,13 @@ public class MessageController {
     @Autowired
     private FcmService fcmService;
 
+    @Autowired
+    private MessageMapper messageMapper;  // 👈 Внедряем маппер
+
     private String getTimestamp() {
         return LocalDateTime.now().format(TIME_FORMATTER);
     }
 
-    // WebSocket endpoint для отправки сообщений в реальном времени
     @MessageMapping("/chat")
     public void processMessage(@Payload MessageDto messageDto) {
         try {
@@ -58,18 +62,15 @@ public class MessageController {
                     messageDto.getReceiverUsername()
             );
 
-            // Устанавливаем статус SENT
             message.setStatus(MessageStatus.SENT);
+            message.setIsRead(false);
 
-            // 👇 ПРОВЕРЯЕМ ОНЛАЙН ПОЛУЧАТЕЛЯ
             if (userService.isUserOnline(messageDto.getReceiverUsername())) {
-                // Если онлайн - DELIVERED
                 message.setStatus(MessageStatus.DELIVERED);
 
-                // 👇 ПРОВЕРЯЕМ, В ЧАТЕ ЛИ ПОЛУЧАТЕЛЬ С ОТПРАВИТЕЛЕМ
                 if (userService.isUserInChatWith(messageDto.getReceiverUsername(), messageDto.getSenderUsername())) {
-                    // Если в чате - сразу READ!
                     message.setStatus(MessageStatus.READ);
+                    message.setIsRead(true);
                     System.out.println("[" + getTimestamp() + "] ✅ Receiver is in chat, setting READ immediately");
                 } else {
                     System.out.println("[" + getTimestamp() + "] ✅ Receiver is online, setting DELIVERED immediately");
@@ -79,9 +80,10 @@ public class MessageController {
             message = messageService.updateMessage(message);
 
             Message fullMessage = messageService.getMessageWithUsers(message.getId());
-            MessageDto responseDto = convertToDto(fullMessage);
 
-            // Отправляем FCM уведомление
+            // 👈 ИСПОЛЬЗУЕМ МАППЕР
+            MessageDto responseDto = messageMapper.toDto(fullMessage);
+
             try {
                 fcmService.sendNewMessageNotification(
                         messageDto.getSenderUsername(),
@@ -95,21 +97,20 @@ public class MessageController {
                 fcmEx.printStackTrace();
             }
 
-            // Отправляем сообщение ПОЛУЧАТЕЛЮ
             messagingTemplate.convertAndSendToUser(
                     messageDto.getReceiverUsername(),
                     "/queue/messages",
                     responseDto
             );
 
-            // Отправляем сообщение ОТПРАВИТЕЛЮ
             messagingTemplate.convertAndSendToUser(
                     messageDto.getSenderUsername(),
                     "/queue/messages",
                     responseDto
             );
 
-            System.out.println("[" + getTimestamp() + "] Message sent via WebSocket to both users with status: " + message.getStatus());
+            System.out.println("[" + getTimestamp() + "] Message sent via WebSocket to both users with status: " + message.getStatus() +
+                    ", isRead: " + message.getIsRead());
 
         } catch (Exception e) {
             System.out.println("[" + getTimestamp() + "] Error sending message via WebSocket: " + e.getMessage());
@@ -129,7 +130,6 @@ public class MessageController {
         }
     }
 
-    // WebSocket endpoint для звонков
     @MessageMapping("/call")
     public void processCallSignal(@Payload Map<String, Object> callSignal) {
         try {
@@ -144,7 +144,6 @@ public class MessageController {
                 return;
             }
 
-            // Отправляем сигнал получателю
             messagingTemplate.convertAndSendToUser(
                     to,
                     "/queue/calls",
@@ -153,7 +152,6 @@ public class MessageController {
 
             System.out.println("[" + getTimestamp() + "] 📞 Call signal forwarded to: " + to);
 
-            // Отправляем FCM уведомление для входящих звонков
             if ("offer".equals(type)) {
                 try {
                     fcmService.sendIncomingCallNotification(from, to);
@@ -169,7 +167,6 @@ public class MessageController {
         }
     }
 
-    // REST endpoint для отправки сообщений (для обратной совместимости)
     @PostMapping("/send")
     public ResponseEntity<MessageDto> sendMessage(@RequestBody MessageDto messageDto) {
         try {
@@ -179,11 +176,11 @@ public class MessageController {
                     messageDto.getReceiverUsername()
             );
 
-            // 👇 Устанавливаем статус SENT
             message.setStatus(MessageStatus.SENT);
             message = messageService.updateMessage(message);
 
-            MessageDto responseDto = convertToDto(message);
+            // 👈 ИСПОЛЬЗУЕМ МАППЕР
+            MessageDto responseDto = messageMapper.toDto(message);
 
             System.out.println("[" + getTimestamp() + "] 🔵 [FCM CHECK] Before calling fcmService.sendNewMessageNotification");
             System.out.println("   Sender: " + messageDto.getSenderUsername());
@@ -214,7 +211,7 @@ public class MessageController {
         try {
             List<Message> messages = messageService.getConversation(user1, user2);
             List<MessageDto> messageDtos = messages.stream()
-                    .map(this::convertToDto)
+                    .map(messageMapper::toDto)  // 👈 ИСПОЛЬЗУЕМ МАППЕР
                     .collect(Collectors.toList());
 
             return ResponseEntity.ok(messageDtos);
@@ -231,7 +228,7 @@ public class MessageController {
         try {
             Message message = messageService.getLastMessage(user1, user2);
             if (message != null) {
-                return ResponseEntity.ok(convertToDto(message));
+                return ResponseEntity.ok(messageMapper.toDto(message));  // 👈 ИСПОЛЬЗУЕМ МАППЕР
             } else {
                 return ResponseEntity.notFound().build();
             }
@@ -255,7 +252,7 @@ public class MessageController {
         try {
             List<Message> messages = messageService.getUnreadMessages(username);
             List<MessageDto> messageDtos = messages.stream()
-                    .map(this::convertToDto)
+                    .map(messageMapper::toDto)  // 👈 ИСПОЛЬЗУЕМ МАППЕР
                     .collect(Collectors.toList());
 
             return ResponseEntity.ok(messageDtos);
@@ -274,7 +271,6 @@ public class MessageController {
         }
     }
 
-    // 👇 НОВЫЙ WebSocket endpoint для подтверждения статусов (DELIVERED/READ)
     @MessageMapping("/status")
     public void updateMessageStatus(@Payload MessageStatusUpdateDto statusUpdate) {
         try {
@@ -282,7 +278,6 @@ public class MessageController {
                     " status=" + statusUpdate.getStatus() +
                     " from=" + statusUpdate.getUsername());
 
-            // 👇 ВСЯ ЛОГИКА В ТРАНЗАКЦИОННОМ МЕТОДЕ СЕРВИСА
             MessageDto responseDto = messageService.processStatusUpdate(statusUpdate);
 
             if (responseDto != null) {
@@ -305,17 +300,44 @@ public class MessageController {
         }
     }
 
-    private MessageDto convertToDto(Message message) {
-        MessageDto dto = new MessageDto();
-        dto.setId(message.getId());
-        dto.setContent(message.getContent());
-        dto.setTimestamp(message.getTimestamp());
-        dto.setIsRead(message.getIsRead());
-        dto.setSenderUsername(message.getSender().getUsername());
-        dto.setReceiverUsername(message.getReceiver().getUsername());
-        dto.setType(message.getType().toString());
-        // 👇 Добавляем статус
-        dto.setStatus(message.getStatus() != null ? message.getStatus().toString() : "SENT");
-        return dto;
+    @MessageMapping("/status/batch")
+    public void updateMessageStatusBatch(@Payload MessageStatusBatchUpdateDto batchUpdate) {
+        try {
+            System.out.println("[" + getTimestamp() + "] 📊 BATCH status update received: " +
+                    batchUpdate.getMessageIds().size() + " messages, status=" + batchUpdate.getStatus() +
+                    " from=" + batchUpdate.getUsername());
+
+            List<MessageDto> updatedMessages = messageService.processStatusBatchUpdate(batchUpdate);
+
+            if (!updatedMessages.isEmpty()) {
+                Map<String, List<MessageDto>> bySender = updatedMessages.stream()
+                        .collect(Collectors.groupingBy(MessageDto::getSenderUsername));
+
+                for (Map.Entry<String, List<MessageDto>> entry : bySender.entrySet()) {
+                    String senderUsername = entry.getKey();
+                    List<MessageDto> messagesForSender = entry.getValue();
+
+                    System.out.println("[" + getTimestamp() + "] 📤 Sending " + messagesForSender.size() +
+                            " status updates to " + senderUsername + " on /queue/status");
+
+                    messagingTemplate.convertAndSendToUser(
+                            senderUsername,
+                            "/queue/status",
+                            messagesForSender
+                    );
+                }
+
+                System.out.println("[" + getTimestamp() + "] ✅ BATCH status updated for " +
+                        updatedMessages.size() + " messages");
+            } else {
+                System.out.println("[" + getTimestamp() + "] ⚠️ No messages updated in batch");
+            }
+
+        } catch (Exception e) {
+            System.err.println("[" + getTimestamp() + "] ❌ Error processing batch status update: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
+
+    // 👇 МЕТОД convertToDto УДАЛЕН! Больше не нужен.
 }

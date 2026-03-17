@@ -1,7 +1,9 @@
 package com.messenger.messengerserver.service;
 
 import com.messenger.messengerserver.dto.MessageDto;
+import com.messenger.messengerserver.dto.MessageStatusBatchUpdateDto;
 import com.messenger.messengerserver.dto.MessageStatusUpdateDto;
+import com.messenger.messengerserver.mapper.MessageMapper;
 import com.messenger.messengerserver.model.Message;
 import com.messenger.messengerserver.model.MessageStatus;
 import com.messenger.messengerserver.model.User;
@@ -10,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -20,6 +23,9 @@ public class MessageService {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private MessageMapper messageMapper;  // 👈 Внедряем маппер
 
     @Transactional
     public Message saveMessage(String content, String senderUsername, String receiverUsername) {
@@ -60,7 +66,6 @@ public class MessageService {
         return messageRepository.save(message);
     }
 
-    // 👇 НОВЫЙ МЕТОД - загружает сообщение с пользователями (для WebSocket)
     @Transactional(readOnly = true)
     public Message getMessageWithUsers(Long messageId) {
         return messageRepository.findByIdWithUsers(messageId)
@@ -71,7 +76,6 @@ public class MessageService {
     public MessageDto processStatusUpdate(MessageStatusUpdateDto statusUpdate) {
         Message message = getMessageWithUsers(statusUpdate.getMessageId());
 
-        // Проверяем, что подтверждение приходит от ПОЛУЧАТЕЛЯ
         if (!message.getReceiver().getUsername().equals(statusUpdate.getUsername())) {
             throw new RuntimeException("Unauthorized status update: " + statusUpdate.getUsername() +
                     " is not receiver of message " + statusUpdate.getMessageId());
@@ -81,21 +85,57 @@ public class MessageService {
 
         if (newStatus.ordinal() > message.getStatus().ordinal()) {
             message.setStatus(newStatus);
+
+            if (newStatus == MessageStatus.READ) {
+                message.setIsRead(true);
+            }
+
             message = updateMessage(message);
 
-            // Создаем DTO (все данные уже загружены в транзакции)
-            MessageDto dto = new MessageDto();
-            dto.setId(message.getId());
-            dto.setContent(message.getContent());
-            dto.setTimestamp(message.getTimestamp());
-            dto.setIsRead(message.getIsRead());
-            dto.setSenderUsername(message.getSender().getUsername());  // Работает!
-            dto.setReceiverUsername(message.getReceiver().getUsername()); // Работает!
-            dto.setType(message.getType().toString());
-            dto.setStatus(message.getStatus().toString());
-
-            return dto;
+            // 👈 ИСПОЛЬЗУЕМ МАППЕР
+            return messageMapper.toDto(message);
         }
         return null;
     }
+
+    @Transactional
+    public List<MessageDto> processStatusBatchUpdate(MessageStatusBatchUpdateDto batchUpdate) {
+        List<Long> messageIds = batchUpdate.getMessageIds();
+        String statusStr = batchUpdate.getStatus();
+        String username = batchUpdate.getUsername();
+
+        MessageStatus newStatus = MessageStatus.valueOf(statusStr);
+        List<MessageDto> updatedMessages = new ArrayList<>();
+
+        for (Long messageId : messageIds) {
+            try {
+                Message message = getMessageWithUsers(messageId);
+
+                if (!message.getReceiver().getUsername().equals(username)) {
+                    System.err.println("⚠️ Unauthorized status update for message " + messageId +
+                            ": " + username + " is not receiver");
+                    continue;
+                }
+
+                if (newStatus.ordinal() > message.getStatus().ordinal()) {
+                    message.setStatus(newStatus);
+
+                    if (newStatus == MessageStatus.READ) {
+                        message.setIsRead(true);
+                    }
+
+                    message = updateMessage(message);
+
+                    // 👈 ИСПОЛЬЗУЕМ МАППЕР
+                    updatedMessages.add(messageMapper.toDto(message));
+                }
+            } catch (Exception e) {
+                System.err.println("❌ Error processing message " + messageId + ": " + e.getMessage());
+            }
+        }
+
+        return updatedMessages;
+    }
+
+    // 👇 МЕТОД convertToDto УДАЛЕН! Больше не нужен.
 }
