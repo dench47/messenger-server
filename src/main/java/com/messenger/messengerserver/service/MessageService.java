@@ -25,7 +25,7 @@ public class MessageService {
     private UserService userService;
 
     @Autowired
-    private MessageMapper messageMapper;  // 👈 Внедряем маппер
+    private MessageMapper messageMapper;
 
     @Transactional
     public Message saveMessage(String content, String senderUsername, String receiverUsername) {
@@ -92,7 +92,6 @@ public class MessageService {
 
             message = updateMessage(message);
 
-            // 👈 ИСПОЛЬЗУЕМ МАППЕР
             return messageMapper.toDto(message);
         }
         return null;
@@ -126,7 +125,6 @@ public class MessageService {
 
                     message = updateMessage(message);
 
-                    // 👈 ИСПОЛЬЗУЕМ МАППЕР
                     updatedMessages.add(messageMapper.toDto(message));
                 }
             } catch (Exception e) {
@@ -137,5 +135,7 @@ public class MessageService {
         return updatedMessages;
     }
 
-    // 👇 МЕТОД convertToDto УДАЛЕН! Больше не нужен.
+    public List<Message> getUndeliveredMessages(String username) {
+        return messageRepository.findByReceiverUsernameAndStatus(username, MessageStatus.SENT);
+    }
 }

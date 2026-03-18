@@ -1,5 +1,9 @@
 package com.messenger.messengerserver.config;
 
+import com.messenger.messengerserver.dto.MessageDto;
+import com.messenger.messengerserver.mapper.MessageMapper;
+import com.messenger.messengerserver.model.Message;
+import com.messenger.messengerserver.service.MessageService;
 import com.messenger.messengerserver.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
@@ -20,6 +24,12 @@ public class WebSocketEventListener {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private MessageService messageService;
+
+    @Autowired
+    private MessageMapper messageMapper;  // 👈 ДОБАВИЛИ МАППЕР
 
     @EventListener
     public void handleWebSocketConnectListener(SessionConnectedEvent event) {
@@ -42,9 +52,8 @@ public class WebSocketEventListener {
         if (username != null) {
             userService.userConnected(username, sessionId);
             broadcastOnlineUsers();
-
-            // Отправляем персональный список онлайн пользователей новому подключившемуся
             sendPersonalOnlineUsers(username);
+            sendUndeliveredMessages(username);  // 👈 ТЕПЕРЬ РАБОТАЕТ
 
             System.out.println("✅ User CONNECTED: " + username +
                     " (session: " + sessionId.substring(0, Math.min(8, sessionId.length())) + ")");
@@ -93,6 +102,33 @@ public class WebSocketEventListener {
                     ": " + onlineUsers.size() + " users");
         } catch (Exception e) {
             System.err.println("❌ Error sending personal online users to " + username +
+                    ": " + e.getMessage());
+        }
+    }
+
+    private void sendUndeliveredMessages(String username) {
+        try {
+            List<Message> undeliveredMessages = messageService.getUndeliveredMessages(username);
+
+            if (!undeliveredMessages.isEmpty()) {
+                System.out.println("📨 Sending " + undeliveredMessages.size() +
+                        " undelivered messages to " + username);
+
+                for (Message message : undeliveredMessages) {
+                    // 👇 ИСПОЛЬЗУЕМ МАППЕР, а не сырой Message!
+                    MessageDto messageDto = messageMapper.toDto(
+                            messageService.getMessageWithUsers(message.getId())
+                    );
+
+                    messagingTemplate.convertAndSendToUser(
+                            username,
+                            "/queue/messages",
+                            messageDto
+                    );
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error sending undelivered messages to " + username +
                     ": " + e.getMessage());
         }
     }

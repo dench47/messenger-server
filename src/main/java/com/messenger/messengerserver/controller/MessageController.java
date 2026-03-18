@@ -43,7 +43,7 @@ public class MessageController {
     private FcmService fcmService;
 
     @Autowired
-    private MessageMapper messageMapper;  // 👈 Внедряем маппер
+    private MessageMapper messageMapper;
 
     private String getTimestamp() {
         return LocalDateTime.now().format(TIME_FORMATTER);
@@ -53,9 +53,9 @@ public class MessageController {
     public void processMessage(@Payload MessageDto messageDto) {
         try {
             System.out.println("[" + getTimestamp() + "] WebSocket message received from: " + messageDto.getSenderUsername() +
-                    " to: " + messageDto.getReceiverUsername() +
-                    " type: " + messageDto.getType());
+                    " to: " + messageDto.getReceiverUsername());
 
+            // 1. Сохраняем сообщение в БД со статусом SENT
             Message message = messageService.saveMessage(
                     messageDto.getContent(),
                     messageDto.getSenderUsername(),
@@ -64,56 +64,59 @@ public class MessageController {
 
             message.setStatus(MessageStatus.SENT);
             message.setIsRead(false);
-
-            if (userService.isUserOnline(messageDto.getReceiverUsername())) {
-                message.setStatus(MessageStatus.DELIVERED);
-
-                if (userService.isUserInChatWith(messageDto.getReceiverUsername(), messageDto.getSenderUsername())) {
-                    message.setStatus(MessageStatus.READ);
-                    message.setIsRead(true);
-                    System.out.println("[" + getTimestamp() + "] ✅ Receiver is in chat, setting READ immediately");
-                } else {
-                    System.out.println("[" + getTimestamp() + "] ✅ Receiver is online, setting DELIVERED immediately");
-                }
-            }
-
             message = messageService.updateMessage(message);
 
             Message fullMessage = messageService.getMessageWithUsers(message.getId());
-
-            // 👈 ИСПОЛЬЗУЕМ МАППЕР
             MessageDto responseDto = messageMapper.toDto(fullMessage);
 
-            try {
-                fcmService.sendNewMessageNotification(
-                        messageDto.getSenderUsername(),
-                        messageDto.getReceiverUsername(),
-                        messageDto.getContent(),
-                        message.getId()
-                );
-                System.out.println("[" + getTimestamp() + "] ✅ [FCM WS] FCM sent successfully via WebSocket");
-            } catch (Exception fcmEx) {
-                System.err.println("[" + getTimestamp() + "] ❌ [FCM WS] Error sending FCM: " + fcmEx.getMessage());
-                fcmEx.printStackTrace();
-            }
-
-            messagingTemplate.convertAndSendToUser(
-                    messageDto.getReceiverUsername(),
-                    "/queue/messages",
-                    responseDto
-            );
-
+            // 2. Отправляем подтверждение ОТПРАВИТЕЛЮ (статус SENT)
             messagingTemplate.convertAndSendToUser(
                     messageDto.getSenderUsername(),
                     "/queue/messages",
                     responseDto
             );
 
-            System.out.println("[" + getTimestamp() + "] Message sent via WebSocket to both users with status: " + message.getStatus() +
-                    ", isRead: " + message.getIsRead());
+            // 3. Проверяем, в чате ли получатель с отправителем
+            boolean isReceiverInChat = userService.isUserInChatWith(
+                    messageDto.getReceiverUsername(),
+                    messageDto.getSenderUsername()
+            );
+
+            // 4. Пытаемся доставить ПОЛУЧАТЕЛЮ
+            boolean isReceiverOnline = userService.isUserOnline(messageDto.getReceiverUsername());
+
+            if (isReceiverOnline) {
+                // Если онлайн - шлем сообщение, клиент сам ответит DELIVERED
+                messagingTemplate.convertAndSendToUser(
+                        messageDto.getReceiverUsername(),
+                        "/queue/messages",
+                        responseDto
+                );
+                System.out.println("[" + getTimestamp() + "] 📨 Message sent to online receiver: " + messageDto.getReceiverUsername());
+            }
+
+            // 5. FCM отправляем ВСЕГДА, КРОМЕ случая когда получатель в чате с отправителем
+            if (!isReceiverInChat) {
+                try {
+                    fcmService.sendNewMessageNotification(
+                            messageDto.getSenderUsername(),
+                            messageDto.getReceiverUsername(),
+                            messageDto.getContent(),
+                            message.getId()
+                    );
+                    System.out.println("[" + getTimestamp() + "] 📱 FCM sent to receiver: " + messageDto.getReceiverUsername() +
+                            " (in chat: " + isReceiverInChat + ")");
+                } catch (Exception fcmEx) {
+                    System.err.println("[" + getTimestamp() + "] ❌ FCM error: " + fcmEx.getMessage());
+                }
+            } else {
+                System.out.println("[" + getTimestamp() + "] 📱 FCM skipped - receiver is in chat with sender");
+            }
+
+            System.out.println("[" + getTimestamp() + "] Message saved with status: SENT for sender: " + messageDto.getSenderUsername());
 
         } catch (Exception e) {
-            System.out.println("[" + getTimestamp() + "] Error sending message via WebSocket: " + e.getMessage());
+            System.err.println("[" + getTimestamp() + "] ❌ Error: " + e.getMessage());
             e.printStackTrace();
 
             MessageDto errorDto = new MessageDto();
@@ -179,7 +182,6 @@ public class MessageController {
             message.setStatus(MessageStatus.SENT);
             message = messageService.updateMessage(message);
 
-            // 👈 ИСПОЛЬЗУЕМ МАППЕР
             MessageDto responseDto = messageMapper.toDto(message);
 
             System.out.println("[" + getTimestamp() + "] 🔵 [FCM CHECK] Before calling fcmService.sendNewMessageNotification");
@@ -211,7 +213,7 @@ public class MessageController {
         try {
             List<Message> messages = messageService.getConversation(user1, user2);
             List<MessageDto> messageDtos = messages.stream()
-                    .map(messageMapper::toDto)  // 👈 ИСПОЛЬЗУЕМ МАППЕР
+                    .map(messageMapper::toDto)
                     .collect(Collectors.toList());
 
             return ResponseEntity.ok(messageDtos);
@@ -228,7 +230,7 @@ public class MessageController {
         try {
             Message message = messageService.getLastMessage(user1, user2);
             if (message != null) {
-                return ResponseEntity.ok(messageMapper.toDto(message));  // 👈 ИСПОЛЬЗУЕМ МАППЕР
+                return ResponseEntity.ok(messageMapper.toDto(message));
             } else {
                 return ResponseEntity.notFound().build();
             }
@@ -252,7 +254,7 @@ public class MessageController {
         try {
             List<Message> messages = messageService.getUnreadMessages(username);
             List<MessageDto> messageDtos = messages.stream()
-                    .map(messageMapper::toDto)  // 👈 ИСПОЛЬЗУЕМ МАППЕР
+                    .map(messageMapper::toDto)
                     .collect(Collectors.toList());
 
             return ResponseEntity.ok(messageDtos);
@@ -283,11 +285,24 @@ public class MessageController {
             if (responseDto != null) {
                 System.out.println("[" + getTimestamp() + "] 📤 Sending status to " + responseDto.getSenderUsername() +
                         " on /queue/status: " + responseDto.getStatus());
+
+                // Пытаемся отправить через WebSocket
                 messagingTemplate.convertAndSendToUser(
                         responseDto.getSenderUsername(),
                         "/queue/status",
                         responseDto
                 );
+
+                // 👇 Проверяем онлайн ли отправитель
+                if (!userService.isUserOnline(responseDto.getSenderUsername())) {
+                    // Если офлайн - отправляем через FCM
+                    fcmService.sendDeliveredConfirmation(
+                            responseDto.getSenderUsername(),
+                            responseDto.getId(),
+                            responseDto.getReceiverUsername()
+                    );
+                }
+
                 System.out.println("[" + getTimestamp() + "] ✅ Status updated for message " + statusUpdate.getMessageId() +
                         " to " + responseDto.getStatus());
             } else {
@@ -297,6 +312,52 @@ public class MessageController {
         } catch (Exception e) {
             System.err.println("[" + getTimestamp() + "] ❌ Error updating message status: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    @PostMapping("/status")
+    public ResponseEntity<?> updateMessageStatusViaHttp(@RequestBody MessageStatusUpdateDto statusUpdate) {
+        try {
+            System.out.println("[" + getTimestamp() + "] 📊 HTTP Status update received: messageId=" + statusUpdate.getMessageId() +
+                    " status=" + statusUpdate.getStatus() +
+                    " from=" + statusUpdate.getUsername());
+
+            MessageDto responseDto = messageService.processStatusUpdate(statusUpdate);
+
+            if (responseDto != null) {
+                System.out.println("[" + getTimestamp() + "] 📤 Sending status to " + responseDto.getSenderUsername() +
+                        " on /queue/status: " + responseDto.getStatus());
+
+                // 👇 Пытаемся отправить через WebSocket
+                messagingTemplate.convertAndSendToUser(
+                        responseDto.getSenderUsername(),
+                        "/queue/status",
+                        responseDto
+                );
+
+                // 👇 Проверяем онлайн ли отправитель
+                if (!userService.isUserOnline(responseDto.getSenderUsername())) {
+                    // Если офлайн - отправляем через FCM
+                    System.out.println("[" + getTimestamp() + "] 📱 Sender offline, sending status via FCM");
+                    fcmService.sendDeliveredConfirmation(
+                            responseDto.getSenderUsername(),
+                            responseDto.getId(),
+                            responseDto.getReceiverUsername()
+                    );
+                }
+
+                System.out.println("[" + getTimestamp() + "] ✅ Status updated via HTTP for message " +
+                        statusUpdate.getMessageId() + " to " + responseDto.getStatus());
+                return ResponseEntity.ok().build();
+            } else {
+                System.out.println("[" + getTimestamp() + "] ⚠️ No status change for message " + statusUpdate.getMessageId());
+                return ResponseEntity.ok().build();
+            }
+
+        } catch (Exception e) {
+            System.err.println("[" + getTimestamp() + "] ❌ Error updating message status via HTTP: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
 
@@ -338,6 +399,4 @@ public class MessageController {
             e.printStackTrace();
         }
     }
-
-    // 👇 МЕТОД convertToDto УДАЛЕН! Больше не нужен.
 }

@@ -15,37 +15,29 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class UserPresenceService {
 
-    // Ключи Redis
-    private static final String USER_SESSIONS_PREFIX = "user:sessions:";  // Множество сессий пользователя
-    private static final String ONLINE_USERS_KEY = "online:users";         // Множество онлайн пользователей
-    private static final String USER_DEVICE_COUNT = "user:devices:";       // Количество устройств
+    private static final String USER_SESSIONS_PREFIX = "user:sessions:";
+    private static final String ONLINE_USERS_KEY = "online:users";
+    private static final String USER_DEVICE_COUNT = "user:devices:";
 
-    // TTL настройки
-    private static final Duration SESSION_TTL = Duration.ofMinutes(30);    // Сессия живет 30 минут
-    private static final Duration ONLINE_TTL = Duration.ofHours(24);       // Онлайн статус 24 часа
-    private static final Duration DEVICE_TTL = Duration.ofMinutes(35);     // Немного больше сессии
+    private static final Duration SESSION_TTL = Duration.ofMinutes(30);
+    private static final Duration ONLINE_TTL = Duration.ofHours(24);
+    private static final Duration DEVICE_TTL = Duration.ofMinutes(35);
 
     @Autowired
     private RedisTemplate<String, String> redisTemplate;
 
-    /**
-     * Пользователь подключился с нового устройства/сессии
-     */
     public void userConnected(String username, String sessionId) {
         String userSessionsKey = USER_SESSIONS_PREFIX + username;
         String userDevicesKey = USER_DEVICE_COUNT + username;
 
         SetOperations<String, String> setOps = redisTemplate.opsForSet();
 
-        // 1. Добавляем сессию в множество сессий пользователя
         setOps.add(userSessionsKey, sessionId);
         redisTemplate.expire(userSessionsKey, SESSION_TTL);
 
-        // 2. Добавляем пользователя в онлайн
         setOps.add(ONLINE_USERS_KEY, username);
         redisTemplate.expire(ONLINE_USERS_KEY, ONLINE_TTL);
 
-        // 3. Обновляем счетчик устройств
         Long deviceCount = setOps.size(userSessionsKey);
         redisTemplate.opsForValue().set(userDevicesKey,
                 String.valueOf(deviceCount != null ? deviceCount : 1),
@@ -56,24 +48,18 @@ public class UserPresenceService {
                 deviceCount != null ? deviceCount : 1);
     }
 
-    /**
-     * Пользователь отключился (конкретная сессия)
-     */
     public void userDisconnected(String username, String sessionId) {
         String userSessionsKey = USER_SESSIONS_PREFIX + username;
         String userDevicesKey = USER_DEVICE_COUNT + username;
 
         SetOperations<String, String> setOps = redisTemplate.opsForSet();
 
-        // 1. Удаляем конкретную сессию
         Long removed = setOps.remove(userSessionsKey, sessionId);
 
         if (removed != null && removed > 0) {
-            // 2. Получаем оставшиеся сессии
             Long remainingSessions = setOps.size(userSessionsKey);
 
             if (remainingSessions == null || remainingSessions == 0) {
-                // 3. Если сессий не осталось - удаляем из онлайн
                 setOps.remove(ONLINE_USERS_KEY, username);
                 redisTemplate.delete(userSessionsKey);
                 redisTemplate.delete(userDevicesKey);
@@ -81,7 +67,6 @@ public class UserPresenceService {
                 System.out.printf("🔴 [Redis] %s fully disconnected. Session: %s%n",
                         username, sessionId.substring(0, Math.min(8, sessionId.length())));
             } else {
-                // 4. Обновляем счетчик устройств
                 redisTemplate.opsForValue().set(userDevicesKey,
                         String.valueOf(remainingSessions), DEVICE_TTL);
 
@@ -95,9 +80,6 @@ public class UserPresenceService {
         }
     }
 
-    /**
-     * Проверить онлайн статус пользователя
-     */
     public boolean isUserOnline(String username) {
         String userSessionsKey = USER_SESSIONS_PREFIX + username;
         SetOperations<String, String> setOps = redisTemplate.opsForSet();
@@ -110,9 +92,6 @@ public class UserPresenceService {
         return isOnline;
     }
 
-    /**
-     * Получить всех онлайн пользователей
-     */
     public Set<String> getOnlineUsers() {
         SetOperations<String, String> setOps = redisTemplate.opsForSet();
         Set<String> onlineUsers = setOps.members(ONLINE_USERS_KEY);
@@ -125,18 +104,12 @@ public class UserPresenceService {
         return onlineUsers;
     }
 
-    /**
-     * Получить количество онлайн пользователей
-     */
     public Long getOnlineUsersCount() {
         SetOperations<String, String> setOps = redisTemplate.opsForSet();
         Long count = setOps.size(ONLINE_USERS_KEY);
         return count != null ? count : 0L;
     }
 
-    /**
-     * Получить количество устройств пользователя
-     */
     public int getUserDeviceCount(String username) {
         String userDevicesKey = USER_DEVICE_COUNT + username;
         String countStr = redisTemplate.opsForValue().get(userDevicesKey);
@@ -149,7 +122,6 @@ public class UserPresenceService {
             }
         }
 
-        // Если нет в кеше, считаем из множества сессий
         String userSessionsKey = USER_SESSIONS_PREFIX + username;
         SetOperations<String, String> setOps = redisTemplate.opsForSet();
         Long count = setOps.size(userSessionsKey);
@@ -163,22 +135,16 @@ public class UserPresenceService {
         return deviceCount;
     }
 
-    /**
-     * Обновить TTL сессии (при активности)
-     */
     public void refreshSession(String username, String sessionId) {
         String userSessionsKey = USER_SESSIONS_PREFIX + username;
         String userDevicesKey = USER_DEVICE_COUNT + username;
 
-        // Проверяем, существует ли сессия
         SetOperations<String, String> setOps = redisTemplate.opsForSet();
         Boolean isMember = setOps.isMember(userSessionsKey, sessionId);
 
         if (Boolean.TRUE.equals(isMember)) {
-            // Обновляем TTL для множества сессий
             redisTemplate.expire(userSessionsKey, SESSION_TTL);
 
-            // Обновляем TTL для счетчика устройств
             Long deviceCount = setOps.size(userSessionsKey);
             if (deviceCount != null && deviceCount > 0) {
                 redisTemplate.opsForValue().set(userDevicesKey,
@@ -190,35 +156,24 @@ public class UserPresenceService {
         }
     }
 
-    /**
-     * Очистить все сессии пользователя (при logout)
-     */
     public void clearAllUserSessions(String username) {
         String userSessionsKey = USER_SESSIONS_PREFIX + username;
         String userDevicesKey = USER_DEVICE_COUNT + username;
 
-        // Удаляем из онлайн пользователей
         SetOperations<String, String> setOps = redisTemplate.opsForSet();
         setOps.remove(ONLINE_USERS_KEY, username);
 
-        // Удаляем все ключи пользователя
         redisTemplate.delete(userSessionsKey);
         redisTemplate.delete(userDevicesKey);
 
         System.out.printf("🗑️ [Redis] All sessions cleared for %s%n", username);
     }
 
-    /**
-     * Очистить все сессии (административная функция)
-     */
     public void clearAllSessions() {
-        // Получаем всех онлайн пользователей
         Set<String> onlineUsers = getOnlineUsers();
 
-        // Удаляем онлайн пользователей
         redisTemplate.delete(ONLINE_USERS_KEY);
 
-        // Удаляем все сессии и счетчики
         for (String user : onlineUsers) {
             redisTemplate.delete(USER_SESSIONS_PREFIX + user);
             redisTemplate.delete(USER_DEVICE_COUNT + user);

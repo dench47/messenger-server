@@ -49,7 +49,7 @@ public class FcmService {
                     .putData("message", messageContent)
                     .putData("messageId", messageId != null ? messageId.toString() : "0")
                     .putData("deepLinkAction", "OPEN_CHAT")
-                    .putData("targetUsername", senderUsername)
+                    .putData("targetUsername", receiverUsername)
                     .build();
 
             System.out.println("📤 [FCM DEBUG] Sending data:");
@@ -112,9 +112,39 @@ public class FcmService {
         }
     }
 
+    // 👇 НОВЫЙ МЕТОД: отправка DELIVERED через FCM
+    public void sendDeliveredConfirmation(String senderUsername, Long messageId, String receiverUsername) {
+        try {
+            System.out.println("📤 [FCM STATUS] Sending DELIVERED confirmation via FCM to: " + senderUsername);
 
+            User sender = userService.findByUsername(senderUsername)
+                    .orElseThrow(() -> new RuntimeException("Sender not found for status update"));
 
-    // НОВЫЙ МЕТОД ДЛЯ BATCH ОТПРАВКИ (5000+)
+            String fcmToken = sender.getFcmToken();
+
+            if (fcmToken == null || fcmToken.isEmpty()) {
+                System.out.println("⚠️ No FCM token for sender: " + senderUsername);
+                return;
+            }
+
+            Message message = Message.builder()
+                    .setToken(fcmToken)
+                    .putData("type", "STATUS_UPDATE")
+                    .putData("messageId", String.valueOf(messageId))
+                    .putData("status", "DELIVERED")
+                    .putData("senderUsername", receiverUsername) // кто отправил подтверждение
+                    .putData("receiverUsername", senderUsername) // кому отправляем
+                    .build();
+
+            String response = FirebaseMessaging.getInstance().send(message);
+            System.out.println("✅ DELIVERED confirmation sent via FCM: " + response);
+
+        } catch (Exception e) {
+            System.err.println("❌ Error sending DELIVERED via FCM: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
     public void sendReconnectCommandBatch(List<String> usernames) {
         try {
             System.out.println("📱 Отправка FCM команд " + usernames.size() + " пользователям");
@@ -132,7 +162,7 @@ public class FcmService {
 
                     FirebaseMessaging.getInstance().send(message);
                     System.out.println("  ✅ Отправлено: " + username);
-                    Thread.sleep(100); // небольшая задержка
+                    Thread.sleep(100);
                 }
             }
             System.out.println("✅ Отправка завершена");
