@@ -81,8 +81,6 @@ public class MessageController {
                     messageDto.getReceiverUsername(),
                     messageDto.getSenderUsername()
             );
-            System.out.println("🔍 Checking if " + messageDto.getReceiverUsername() +
-                    " is in chat with " + messageDto.getSenderUsername() + ": " + isReceiverInChat);
 
             // 4. Пытаемся доставить ПОЛУЧАТЕЛЮ
             boolean isReceiverOnline = userService.isUserOnline(messageDto.getReceiverUsername());
