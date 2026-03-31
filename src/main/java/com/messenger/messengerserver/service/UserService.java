@@ -12,7 +12,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 @Service
 public class UserService {
@@ -53,13 +52,36 @@ public class UserService {
         user.setLastSeen(LocalDateTime.now());
         userRepository.save(user);
 
-        // МГНОВЕННЫЙ статус при уходе в фон
         sendImmediateStatusUpdate(username, false);
         System.out.println("⏰ Last seen updated for " + username + ": " + user.getLastSeen());
     }
 
+    /**
+     * Завершить все старые сессии пользователя (кроме текущей)
+     */
+    public void terminateOtherSessions(String username, String currentSessionId) {
+        String oldSessionId = userPresenceService.getUserSession(username);
+        if (oldSessionId != null && !oldSessionId.equals(currentSessionId)) {
+            System.out.printf("[SESSION] 🔒 Завершаем старую сессию для %s: %s%n",
+                    username, oldSessionId.substring(0, Math.min(8, oldSessionId.length())));
+
+            // Отправляем уведомление на старое устройство
+            Map<String, Object> logoutMessage = new HashMap<>();
+            logoutMessage.put("type", "SESSION_TERMINATED");
+            logoutMessage.put("message", "Вы вошли на другом устройстве. Сессия завершена.");
+
+            messagingTemplate.convertAndSendToUser(username, "/queue/session", logoutMessage);
+        }
+    }
+
     public void userConnected(String username, String sessionId) {
-        // Сохраняем сессию в Redis
+        System.out.printf("[SESSION] 🔗 userConnected: %s, sessionId: %s%n",
+                username, sessionId.substring(0, Math.min(8, sessionId.length())));
+
+        // Завершаем старые сессии
+        terminateOtherSessions(username, sessionId);
+
+        // Сохраняем новую сессию в Redis (перезаписывает старую)
         userPresenceService.userConnected(username, sessionId);
 
         // Сохраняем sessionId локально для быстрого доступа
@@ -74,20 +96,15 @@ public class UserService {
         System.out.println("👤 " + username + ": 🟢 CONNECTED (session: " +
                 sessionId.substring(0, Math.min(8, sessionId.length())) + ")");
 
-        // МГНОВЕННЫЙ статус при подключении
         sendImmediateStatusUpdate(username, true);
         System.out.println("✅ User connected: " + username);
     }
 
     public void userDisconnected(String username, String sessionId) {
         try {
-            // Небольшая задержка для клиента, чтобы он успел отправить UNSUBSCRIBE
-            Thread.sleep(50); // 50ms задержка
+            Thread.sleep(50);
 
-            // Удаляем сессию из Redis
             userPresenceService.userDisconnected(username, sessionId);
-
-            // Удаляем из локальной мапы
             userSessionMap.remove(username);
 
             User user = userRepository.findByUsername(username)
@@ -100,10 +117,9 @@ public class UserService {
                     sessionId.substring(0, Math.min(8, sessionId.length())) +
                     ", last seen: " + formatLastSeenDetailed(user.getLastSeen()) + ")");
 
-            // МГНОВЕННЫЙ статус при отключении (с задержкой)
             new Thread(() -> {
                 try {
-                    Thread.sleep(100); // Дополнительная задержка 100ms
+                    Thread.sleep(100);
                     sendImmediateStatusUpdate(username, false);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -119,17 +135,14 @@ public class UserService {
     }
 
     public boolean isUserOnline(String username) {
-        // Проверяем в Redis
         return userPresenceService.isUserOnline(username);
     }
 
     public List<String> getOnlineUsers() {
-        // Получаем из Redis
         return new ArrayList<>(userPresenceService.getOnlineUsers());
     }
 
     public int getOnlineUsersCount() {
-        // Получаем из Redis
         return userPresenceService.getOnlineUsersCount().intValue();
     }
 
@@ -156,26 +169,21 @@ public class UserService {
 
     private Map<String, Object> prepareStatusData(User user) {
         String username = user.getUsername();
-        // Проверяем онлайн статус в Redis
         boolean hasWebSocket = userPresenceService.isUserOnline(username);
 
         String status = hasWebSocket ? "online" : "offline";
         String lastSeenText = hasWebSocket ? "online" : formatLastSeenDetailed(user.getLastSeen());
 
-        String emoji = hasWebSocket ? "🟢" : "🔴";
-        System.out.println("👤 " + username + ": " + emoji + " " + status + " (" + lastSeenText + ")");
-
         Map<String, Object> statusData = new HashMap<>();
         statusData.put("type", "USER_STATUS_UPDATE");
         statusData.put("username", username);
-        statusData.put("online", hasWebSocket);  // Это должно быть false при отключении
+        statusData.put("online", hasWebSocket);
         statusData.put("status", status);
         statusData.put("lastSeenText", lastSeenText);
 
         return statusData;
     }
 
-    // МГНОВЕННОЕ обновление статуса одного пользователя
     private void sendImmediateStatusUpdate(String username, boolean isOnline) {
         try {
             User user = findByUsername(username).orElse(null);
@@ -213,34 +221,13 @@ public class UserService {
         userRepository.save(user);
     }
 
-    /**
-     * Обновить TTL сессии пользователя (при активности)
-     * Теперь требует sessionId
-     */
-    public void refreshUserSession(String username, String sessionId) {
-        userPresenceService.refreshSession(username, sessionId);
-    }
-
-    /**
-     * Получить sessionId пользователя
-     */
     public String getUserSessionId(String username) {
         return userSessionMap.get(username);
     }
 
-    /**
-     * Проверить, есть ли сессия пользователя
-     */
     public boolean hasUserSession(String username, String sessionId) {
         String storedSessionId = userSessionMap.get(username);
         return storedSessionId != null && storedSessionId.equals(sessionId);
-    }
-
-    /**
-     * Получить количество устройств пользователя
-     */
-    public int getUserDeviceCount(String username) {
-        return userPresenceService.getUserDeviceCount(username);
     }
 
     public List<User> getUserContacts(String username) {

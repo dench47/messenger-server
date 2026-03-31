@@ -1,6 +1,7 @@
 package com.messenger.messengerserver.config;
 
 import com.messenger.messengerserver.service.CustomUserDetailsService;
+import com.messenger.messengerserver.service.UserPresenceService;
 import com.messenger.messengerserver.util.JwtUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -24,6 +25,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
     private final CustomUserDetailsService userDetailsService;
+    private final UserPresenceService userPresenceService;  // 👈 ДОБАВИТЬ
+
 
     // ===== ВРЕМЕННАЯ ЗАЩИТА (пока сервер на домашнем ПК) =====
 
@@ -67,9 +70,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     // ScheduledExecutor для очистки
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
-    public JwtAuthenticationFilter(JwtUtil jwtUtil, CustomUserDetailsService userDetailsService) {
+    public JwtAuthenticationFilter(JwtUtil jwtUtil, CustomUserDetailsService userDetailsService, UserPresenceService userPresenceService) {
         this.jwtUtil = jwtUtil;
         this.userDetailsService = userDetailsService;
+        this.userPresenceService = userPresenceService;
 
         // Планируем очистку карт каждую минуту
         scheduler.scheduleAtFixedRate(() -> {
@@ -152,8 +156,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // Rate limiting для авторизованных
             if (isRateLimitExceeded(authorizedAttempts, clientIp, MAX_AUTHORIZED_PER_MINUTE)) {
                 System.out.println("[SECURITY] ⚠️ Rate limit для авторизованного IP: " + clientIp);
-                response.setStatus(429); // TOO MANY REQUESTS
+                response.setStatus(429);
                 return;
+            }
+
+            // 👇 ДОБАВИТЬ ПРОВЕРКУ СЕССИИ
+            String sessionId = request.getHeader("X-Session-Id");
+            if (sessionId != null && !sessionId.isEmpty()) {
+                boolean isActive = userPresenceService.isSessionActive(username, sessionId);
+                if (!isActive) {
+                    System.out.println("[SECURITY] 🚫 Сессия не активна для " + username);
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setHeader("X-Session-Terminated", "true");
+                    response.getWriter().write("Session terminated by another device");
+                    return;
+                }
+            } else {
+                System.out.println("[SECURITY] ⚠️ Нет X-Session-Id заголовка для " + username);
             }
 
             try {

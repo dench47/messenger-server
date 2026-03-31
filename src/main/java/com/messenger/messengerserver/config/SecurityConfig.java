@@ -1,6 +1,7 @@
 package com.messenger.messengerserver.config;
 
 import com.messenger.messengerserver.service.CustomUserDetailsService;
+import com.messenger.messengerserver.service.UserPresenceService;
 import com.messenger.messengerserver.util.JwtUtil;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,13 +24,16 @@ public class SecurityConfig {
     private final CustomUserDetailsService userDetailsService;
     private final JwtUtil jwtUtil;
     private final CorsConfigurationSource corsConfigurationSource;
+    private final UserPresenceService userPresenceService;  // 👈 ДОБАВИТЬ
+
 
     public SecurityConfig(CustomUserDetailsService userDetailsService,
                           JwtUtil jwtUtil,
-                          CorsConfigurationSource corsConfigurationSource) {
+                          CorsConfigurationSource corsConfigurationSource, UserPresenceService userPresenceService) {
         this.userDetailsService = userDetailsService;
         this.jwtUtil = jwtUtil;
         this.corsConfigurationSource = corsConfigurationSource;
+        this.userPresenceService = userPresenceService;
     }
 
     @Bean
@@ -70,6 +74,6 @@ public class SecurityConfig {
 
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter() {
-        return new JwtAuthenticationFilter(jwtUtil, userDetailsService);
+        return new JwtAuthenticationFilter(jwtUtil, userDetailsService, userPresenceService);  // 👈 ИЗМЕНИТЬ
     }
 }

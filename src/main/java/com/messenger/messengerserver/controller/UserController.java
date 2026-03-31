@@ -34,22 +34,15 @@ public class UserController {
     @Autowired
     private UserPresenceService userPresenceService;
 
-
-    // УЛУЧШЕННАЯ конвертация с деталями
+    // УЛУЧШЕННАЯ конвертация с деталями (без счетчика устройств)
     private UserWithStatusDTO convertUserToDTO(User user) {
         String username = user.getUsername();
         boolean isOnline = userService.isUserOnline(username);
         String lastSeenText;
-        int deviceCount = userService.getUserDeviceCount(username);
 
         if (isOnline) {
-            if (deviceCount > 1) {
-                lastSeenText = "online (" + deviceCount + " устройства)";
-            } else {
-                lastSeenText = "online";
-            }
+            lastSeenText = "online";
         } else {
-            // ВАЖНО: Используем getLastSeen() из user объекта, а не current time
             lastSeenText = UserService.formatLastSeenDetailed(user.getLastSeen());
         }
 
