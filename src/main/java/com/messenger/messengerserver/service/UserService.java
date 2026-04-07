@@ -31,8 +31,18 @@ public class UserService {
     @Autowired
     private UserActivityService userActivityService;
 
-    // Map для хранения sessionId по username (только для WebSocket соединений)
     private final Map<String, String> userSessionMap = new ConcurrentHashMap<>();
+    private final Map<String, String> internalToRabbitSessionMap = new ConcurrentHashMap<>();
+
+    public void setRabbitSessionId(String internalSessionId, String rabbitSessionId) {
+        internalToRabbitSessionMap.put(internalSessionId, rabbitSessionId);
+        System.out.printf("[SESSION] 💾 Сохранено соответствие: %s -> %s%n",
+                internalSessionId, rabbitSessionId);
+    }
+
+    public void removeRabbitSessionId(String internalSessionId) {
+        internalToRabbitSessionMap.remove(internalSessionId);
+    }
 
     public Optional<User> findByUsername(String username) {
         return userRepository.findByUsername(username);
@@ -56,36 +66,36 @@ public class UserService {
         System.out.println("⏰ Last seen updated for " + username + ": " + user.getLastSeen());
     }
 
-    /**
-     * Завершить все старые сессии пользователя (кроме текущей)
-     */
-    public void terminateOtherSessions(String username, String currentSessionId) {
-        String oldSessionId = userPresenceService.getUserSession(username);
-        if (oldSessionId != null && !oldSessionId.equals(currentSessionId)) {
+    public void terminateOtherSessions(String username, String currentInternalSessionId) {
+        String oldInternalSessionId = userPresenceService.getUserSession(username);
+        if (oldInternalSessionId != null && !oldInternalSessionId.equals(currentInternalSessionId)) {
             System.out.printf("[SESSION] 🔒 Завершаем старую сессию для %s: %s%n",
-                    username, oldSessionId.substring(0, Math.min(8, oldSessionId.length())));
+                    username, oldInternalSessionId);
 
-            // Отправляем уведомление на старое устройство
+            String oldRabbitSessionId = internalToRabbitSessionMap.get(oldInternalSessionId);
+
             Map<String, Object> logoutMessage = new HashMap<>();
             logoutMessage.put("type", "SESSION_TERMINATED");
             logoutMessage.put("message", "Вы вошли на другом устройстве. Сессия завершена.");
+            logoutMessage.put("timestamp", System.currentTimeMillis());
+            logoutMessage.put("targetSessionId", oldRabbitSessionId != null ? oldRabbitSessionId : oldInternalSessionId);
 
-            messagingTemplate.convertAndSendToUser(username, "/queue/session", logoutMessage);
+            messagingTemplate.convertAndSend("/topic/session", logoutMessage);
+
+            System.out.printf("[SESSION] 📤 Отправлено уведомление в /topic/session для RabbitMQ сессии %s%n",
+                    oldRabbitSessionId != null ? oldRabbitSessionId : oldInternalSessionId);
         }
     }
 
-    public void userConnected(String username, String sessionId) {
-        System.out.printf("[SESSION] 🔗 userConnected: %s, sessionId: %s%n",
-                username, sessionId.substring(0, Math.min(8, sessionId.length())));
+    public void userConnected(String username, String internalSessionId, String rabbitSessionId) {
+        System.out.printf("[SESSION] 🔗 userConnected: %s, internalSessionId: %s, rabbitSessionId: %s%n",
+                username, internalSessionId, rabbitSessionId);
 
-        // Завершаем старые сессии
-        terminateOtherSessions(username, sessionId);
+        setRabbitSessionId(internalSessionId, rabbitSessionId);
+        terminateOtherSessions(username, internalSessionId);
 
-        // Сохраняем новую сессию в Redis (перезаписывает старую)
-        userPresenceService.userConnected(username, sessionId);
-
-        // Сохраняем sessionId локально для быстрого доступа
-        userSessionMap.put(username, sessionId);
+        userPresenceService.userConnected(username, internalSessionId);
+        userSessionMap.put(username, internalSessionId);
 
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -93,18 +103,18 @@ public class UserService {
         user.setLastSeen(null);
         userRepository.save(user);
 
-        System.out.println("👤 " + username + ": 🟢 CONNECTED (session: " +
-                sessionId.substring(0, Math.min(8, sessionId.length())) + ")");
+        System.out.println("👤 " + username + ": 🟢 CONNECTED");
 
         sendImmediateStatusUpdate(username, true);
         System.out.println("✅ User connected: " + username);
     }
 
-    public void userDisconnected(String username, String sessionId) {
+    public void userDisconnected(String username, String internalSessionId) {
         try {
             Thread.sleep(50);
 
-            userPresenceService.userDisconnected(username, sessionId);
+            removeRabbitSessionId(internalSessionId);
+            userPresenceService.userDisconnected(username, internalSessionId);
             userSessionMap.remove(username);
 
             User user = userRepository.findByUsername(username)
@@ -113,8 +123,7 @@ public class UserService {
             user.setLastSeen(LocalDateTime.now());
             userRepository.save(user);
 
-            System.out.println("👤 " + username + ": 🔴 DISCONNECTED (session: " +
-                    sessionId.substring(0, Math.min(8, sessionId.length())) +
+            System.out.println("👤 " + username + ": 🔴 DISCONNECTED (internalSession: " + internalSessionId +
                     ", last seen: " + formatLastSeenDetailed(user.getLastSeen()) + ")");
 
             new Thread(() -> {

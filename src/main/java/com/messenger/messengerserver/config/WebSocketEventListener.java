@@ -29,7 +29,7 @@ public class WebSocketEventListener {
     private MessageService messageService;
 
     @Autowired
-    private MessageMapper messageMapper;  // 👈 ДОБАВИЛИ МАППЕР
+    private MessageMapper messageMapper;
 
     @EventListener
     public void handleWebSocketConnectListener(SessionConnectedEvent event) {
@@ -47,16 +47,39 @@ public class WebSocketEventListener {
             }
         }
 
-        String sessionId = headerAccessor.getSessionId();
+        String internalSessionId = headerAccessor.getSessionId();
+
+        // Получаем RabbitMQ sessionId из сообщения CONNECTED
+        String rabbitSessionId = null;
+        try {
+            // Парсим напрямую из native заголовков
+            Object nativeHeadersObj = headerAccessor.getHeader("nativeHeaders");
+            if (nativeHeadersObj instanceof Map) {
+                Map<String, List<String>> nativeHeaders = (Map<String, List<String>>) nativeHeadersObj;
+                List<String> sessionValues = nativeHeaders.get("session");
+                if (sessionValues != null && !sessionValues.isEmpty()) {
+                    rabbitSessionId = sessionValues.get(0);
+                    System.out.println("[SESSION] ✅ Получен RabbitMQ sessionId из nativeHeaders: " + rabbitSessionId);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[SESSION] ❌ Ошибка получения RabbitMQ sessionId: " + e.getMessage());
+        }
+
+        // Если не получили - используем internalSessionId
+        if (rabbitSessionId == null) {
+            rabbitSessionId = internalSessionId;
+            System.out.println("[SESSION] ⚠️ Используем internalSessionId как rabbitSessionId: " + rabbitSessionId);
+        }
 
         if (username != null) {
-            userService.userConnected(username, sessionId);
+            userService.userConnected(username, internalSessionId, rabbitSessionId);
             broadcastOnlineUsers();
             sendPersonalOnlineUsers(username);
-            sendUndeliveredMessages(username);  // 👈 ТЕПЕРЬ РАБОТАЕТ
+            sendUndeliveredMessages(username);
 
             System.out.println("✅ User CONNECTED: " + username +
-                    " (session: " + sessionId.substring(0, Math.min(8, sessionId.length())) + ")");
+                    " (internalSession: " + internalSessionId + ", rabbitSession: " + rabbitSessionId + ")");
         }
     }
 
@@ -74,13 +97,13 @@ public class WebSocketEventListener {
             username = headerAccessor.getUser().getName();
         }
 
-        String sessionId = headerAccessor.getSessionId();
+        String internalSessionId = headerAccessor.getSessionId();
 
         if (username != null) {
-            userService.userDisconnected(username, sessionId);
+            userService.userDisconnected(username, internalSessionId);
             broadcastOnlineUsers();
             System.out.println("🔴 User DISCONNECTED: " + username +
-                    " (session: " + sessionId.substring(0, Math.min(8, sessionId.length())) + ")");
+                    " (internalSession: " + internalSessionId + ")");
         }
     }
 
@@ -115,7 +138,6 @@ public class WebSocketEventListener {
                         " undelivered messages to " + username);
 
                 for (Message message : undeliveredMessages) {
-                    // 👇 ИСПОЛЬЗУЕМ МАППЕР, а не сырой Message!
                     MessageDto messageDto = messageMapper.toDto(
                             messageService.getMessageWithUsers(message.getId())
                     );

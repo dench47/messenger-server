@@ -2,12 +2,19 @@ package com.messenger.messengerserver.config;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
+import org.springframework.web.socket.server.HandshakeInterceptor;
+
+import java.util.Map;
 
 @Configuration
 @EnableWebSocketMessageBroker
@@ -18,16 +25,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        // RabbitMQ как внешний STOMP брокер
         config.enableStompBrokerRelay("/topic", "/queue", "/exchange")
-                .setRelayHost("localhost")           // RabbitMQ хост
-                .setRelayPort(61613)                // STOMP порт RabbitMQ
-                .setClientLogin("guest")            // RabbitMQ логин
-                .setClientPasscode("guest")         // RabbitMQ пароль
-                .setSystemLogin("guest")            // Системный логин
-                .setSystemPasscode("guest")         // Системный пароль
-                .setVirtualHost("/")                // Виртуальный хост
-                .setAutoStartup(true);              // Автозапуск
+                .setRelayHost("localhost")
+                .setRelayPort(61613)
+                .setClientLogin("guest")
+                .setClientPasscode("guest")
+                .setSystemLogin("guest")
+                .setSystemPasscode("guest")
+                .setVirtualHost("/")
+                .setAutoStartup(true);
 
         config.setApplicationDestinationPrefixes("/app");
         config.setUserDestinationPrefix("/user");
@@ -37,22 +43,38 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // WebSocket endpoint
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*")
-                .setHandshakeHandler(new CustomHandshakeHandler());
+                .setAllowedOrigins("*")
+                .setHandshakeHandler(new CustomHandshakeHandler())
+                .addInterceptors(new HandshakeInterceptor() {
+                    @Override
+                    public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
+                                                   WebSocketHandler wsHandler, Map<String, Object> attributes) throws Exception {
+                        if (request instanceof ServletServerHttpRequest) {
+                            ServletServerHttpRequest servletRequest = (ServletServerHttpRequest) request;
+                            String sessionId = servletRequest.getServletRequest().getHeader("X-Session-Id");
+                            if (sessionId != null) {
+                                response.getHeaders().add("X-Session-Id", sessionId);
+                                attributes.put("sessionId", sessionId);
+                            }
+                        }
+                        return true;
+                    }
 
-        // SockJS fallback endpoint
+                    @Override
+                    public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response,
+                                               WebSocketHandler wsHandler, Exception exception) {}
+                });
+
         registry.addEndpoint("/ws/sockjs")
-                .setAllowedOriginPatterns("*")
+                .setAllowedOrigins("*")
                 .withSockJS()
-                .setHeartbeatTime(25000); // SockJS heartbeat (не STOMP!)
+                .setHeartbeatTime(25000);
     }
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
         registration.interceptors(webSocketAuthInterceptor);
-        // Увеличиваем размер пула для обработки 5000+ соединений
         registration.taskExecutor()
                 .corePoolSize(10)
                 .maxPoolSize(20)
@@ -61,7 +83,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureClientOutboundChannel(ChannelRegistration registration) {
-        // Увеличиваем размер пула для исходящих сообщений
         registration.taskExecutor()
                 .corePoolSize(10)
                 .maxPoolSize(20)
@@ -70,10 +91,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureWebSocketTransport(WebSocketTransportRegistration registration) {
-        // Настройки WebSocket транспорта
-        registration.setMessageSizeLimit(128 * 1024)      // 128KB
-                .setSendBufferSizeLimit(512 * 1024)   // 512KB
-                .setSendTimeLimit(20000)              // 20 секунд
-                .setTimeToFirstMessage(30000);        // 30 секунд до первого сообщения
+        registration.setMessageSizeLimit(128 * 1024)
+                .setSendBufferSizeLimit(512 * 1024)
+                .setSendTimeLimit(20000)
+                .setTimeToFirstMessage(30000);
     }
 }
